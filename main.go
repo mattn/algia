@@ -309,6 +309,7 @@ func main() {
 	}
 
 	app := &cli.App{
+		Description: "A cli application for nostr",
 		Commands: []*cli.Command{
 			{
 				Name:    "note",
@@ -351,9 +352,9 @@ func main() {
 				Action: vote,
 			},
 		},
-	}
-	app.Metadata = map[string]interface{}{
-		"config": cfg,
+		Metadata: map[string]any{
+			"config": cfg,
+		},
 	}
 
 	if err := app.Run(os.Args); err != nil {
