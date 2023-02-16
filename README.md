@@ -6,14 +6,20 @@ nostr CLI client written in Go
 
 ```
 NAME:
-   algia - A cli application for nostr
+   algia - A new cli application
 
 USAGE:
    algia [global options] command [command options] [arguments...]
 
+DESCRIPTION:
+   A cli application for nostr
+
 COMMANDS:
-   note, n       post new note
    timeline, tl  show timeline
+   note, n       post new note
+   reply, n      reply to the note
+   renote, b     renote the note
+   vote, v       vote the note
    help, h       Shows a list of commands or help for one command
 
 GLOBAL OPTIONS:
@@ -40,6 +46,7 @@ Minimal configuration. Need to be at ~/.config/algia/config.json
   },
   "privatekey": "nsecXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX"
 }
+
 ```
 
 ## TODO
