@@ -274,11 +274,6 @@ func timeline(cCtx *cli.Context) error {
 					Event:   ev,
 					Profile: profile,
 				}
-				if prefix, value, err := nip19.Decode(ev.PubKey); err != nil {
-					log.Fatal(err)
-				} else {
-					println(prefix + value.(string))
-				}
 				json.NewEncoder(os.Stdout).Encode(eev)
 			}
 		}
