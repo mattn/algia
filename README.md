@@ -23,7 +23,7 @@ GLOBAL OPTIONS:
 ## Installation
 
 ```
-go install github.com/mattn/algia
+go install github.com/mattn/algia@latest
 ```
 
 ## Configuration
