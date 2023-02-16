@@ -68,8 +68,14 @@ func loadConfig() (*Config, error) {
 	return &cfg, nil
 }
 
-func (cfg *Config) findRelay() *nostr.Relay {
-	for k := range cfg.Relays {
+func (cfg *Config) findRelay(write bool) *nostr.Relay {
+	for k, v := range cfg.Relays {
+		if write && !v.Write {
+			continue
+		}
+		if !write && !v.Read {
+			continue
+		}
 		ctx := context.WithValue(context.Background(), "url", k)
 		relay, err := nostr.RelayConnect(ctx, k)
 		if err == nil {
@@ -97,7 +103,7 @@ func note(cCtx *cli.Context) error {
 	stdin := cCtx.Bool("stdin")
 
 	cfg := cCtx.App.Metadata["config"].(*Config)
-	relay := cfg.findRelay()
+	relay := cfg.findRelay(true)
 	if relay == nil {
 		return errors.New("cannot connect relays")
 	}
@@ -143,7 +149,7 @@ func reply(cCtx *cli.Context) error {
 	quote := cCtx.Bool("quote")
 
 	cfg := cCtx.App.Metadata["config"].(*Config)
-	relay := cfg.findRelay()
+	relay := cfg.findRelay(true)
 	if relay == nil {
 		return errors.New("cannot connect relays")
 	}
@@ -196,7 +202,7 @@ func renote(cCtx *cli.Context) error {
 	id := cCtx.String("id")
 
 	cfg := cCtx.App.Metadata["config"].(*Config)
-	relay := cfg.findRelay()
+	relay := cfg.findRelay(true)
 	if relay == nil {
 		return errors.New("cannot connect relays")
 	}
@@ -244,7 +250,7 @@ func vote(cCtx *cli.Context) error {
 	id := cCtx.String("id")
 
 	cfg := cCtx.App.Metadata["config"].(*Config)
-	relay := cfg.findRelay()
+	relay := cfg.findRelay(true)
 	if relay == nil {
 		return errors.New("cannot connect relays")
 	}
@@ -292,7 +298,7 @@ func timeline(cCtx *cli.Context) error {
 	j := cCtx.Bool("json")
 
 	cfg := cCtx.App.Metadata["config"].(*Config)
-	relay := cfg.findRelay()
+	relay := cfg.findRelay(false)
 	if relay == nil {
 		return errors.New("cannot connect relays")
 	}
@@ -305,7 +311,6 @@ func timeline(cCtx *cli.Context) error {
 		for _, ev := range relay.QuerySync(context.Background(), nostr.Filter{Kinds: []int{nostr.KindContactList}}) {
 			follows = append(follows, ev.PubKey)
 		}
-		println(len(follows))
 		if len(follows) > 0 {
 			// get follower's desecriptions
 			evs := relay.QuerySync(context.Background(), nostr.Filter{
