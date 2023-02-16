@@ -44,8 +44,9 @@ Minimal configuration. Need to be at ~/.config/algia/config.json
 
 ## TODO
 
-* vote
-* boost
+* [x] vote
+* [x] boost
+* [ ] upload images
 
 ## License
 
