@@ -297,6 +297,7 @@ func vote(cCtx *cli.Context) error {
 func timeline(cCtx *cli.Context) error {
 	n := cCtx.Int("n")
 	j := cCtx.Bool("json")
+	extra := cCtx.Bool("extra")
 
 	cfg := cCtx.App.Metadata["config"].(*Config)
 	relay := cfg.findRelay(false)
@@ -354,13 +355,17 @@ func timeline(cCtx *cli.Context) error {
 
 	if j {
 		for ev := range sub.Events {
-			profile, ok := cfg.Follows[ev.PubKey]
-			if ok {
-				eev := Event{
-					Event:   ev,
-					Profile: profile,
+			if extra {
+				profile, ok := cfg.Follows[ev.PubKey]
+				if ok {
+					eev := Event{
+						Event:   ev,
+						Profile: profile,
+					}
+					json.NewEncoder(os.Stdout).Encode(eev)
 				}
-				json.NewEncoder(os.Stdout).Encode(eev)
+			} else {
+				json.NewEncoder(os.Stdout).Encode(ev)
 			}
 		}
 		return nil
@@ -398,7 +403,8 @@ func main() {
 				Usage:   "show timeline",
 				Flags: []cli.Flag{
 					&cli.IntFlag{Name: "n", Value: 30},
-					&cli.BoolFlag{Name: "json"},
+					&cli.BoolFlag{Name: "json", Usage: "output JSON"},
+					&cli.BoolFlag{Name: "extra", Usage: "extra JSON"},
 				},
 				Action: timeline,
 			},
