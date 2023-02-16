@@ -158,7 +158,6 @@ func boost(cCtx *cli.Context) error {
 	defer relay.Close()
 
 	ev := nostr.Event{}
-	ev.Tags = ev.Tags.AppendUnique(nostr.Tag{"e", id})
 	var sk string
 	if _, s, err := nip19.Decode(cfg.PrivateKey); err != nil {
 		return err
@@ -174,7 +173,16 @@ func boost(cCtx *cli.Context) error {
 	} else {
 		return err
 	}
-	ev.Tags = ev.Tags.AppendUnique(nostr.Tag{"p", pid})
+	if _, tmp, err := nip19.Decode(id); err == nil {
+		ev.Tags = ev.Tags.AppendUnique(nostr.Tag{"e", tmp.(string)})
+	} else {
+		ev.Tags = ev.Tags.AppendUnique(nostr.Tag{"e", id})
+	}
+	if _, tmp, err := nip19.Decode(pid); err == nil {
+		ev.Tags = ev.Tags.AppendUnique(nostr.Tag{"p", tmp.(string)})
+	} else {
+		ev.Tags = ev.Tags.AppendUnique(nostr.Tag{"p", pid})
+	}
 	ev.CreatedAt = time.Now()
 	ev.Kind = nostr.KindBoost
 	ev.Content = ""
@@ -197,7 +205,6 @@ func vote(cCtx *cli.Context) error {
 	defer relay.Close()
 
 	ev := nostr.Event{}
-	ev.Tags = ev.Tags.AppendUnique(nostr.Tag{"e", id})
 	var sk string
 	if _, s, err := nip19.Decode(cfg.PrivateKey); err != nil {
 		return err
@@ -213,7 +220,16 @@ func vote(cCtx *cli.Context) error {
 	} else {
 		return err
 	}
-	ev.Tags = ev.Tags.AppendUnique(nostr.Tag{"p", pid})
+	if _, tmp, err := nip19.Decode(id); err == nil {
+		ev.Tags = ev.Tags.AppendUnique(nostr.Tag{"e", tmp.(string)})
+	} else {
+		ev.Tags = ev.Tags.AppendUnique(nostr.Tag{"e", id})
+	}
+	if _, tmp, err := nip19.Decode(pid); err == nil {
+		ev.Tags = ev.Tags.AppendUnique(nostr.Tag{"p", tmp.(string)})
+	} else {
+		ev.Tags = ev.Tags.AppendUnique(nostr.Tag{"p", pid})
+	}
 	ev.CreatedAt = time.Now()
 	ev.Kind = nostr.KindReaction
 	ev.Content = "+"
