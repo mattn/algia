@@ -42,6 +42,11 @@ Minimal configuration. Need to be at ~/.config/algia/config.json
 }
 ```
 
+## TODO
+
+* vote
+* boost
+
 ## License
 
 MIT
