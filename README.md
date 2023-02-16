@@ -6,7 +6,7 @@ nostr CLI client written in Go
 
 ```
 NAME:
-   algia - A new cli application
+   algia - A cli application for nostr
 
 USAGE:
    algia [global options] command [command options] [arguments...]
