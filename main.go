@@ -93,10 +93,8 @@ func (cfg *Config) save() error {
 	return ioutil.WriteFile(fp, b, 0644)
 }
 
-func newNote(cCtx *cli.Context) error {
+func note(cCtx *cli.Context) error {
 	stdin := cCtx.Bool("stdin")
-	rid := cCtx.String("rid")
-	qid := cCtx.String("qid")
 
 	cfg := cCtx.App.Metadata["config"].(*Config)
 	relay := cfg.findRelay()
@@ -113,19 +111,12 @@ func newNote(cCtx *cli.Context) error {
 	}
 	ev := nostr.Event{}
 	if pub, err := nostr.GetPublicKey(sk); err == nil {
-		ev.PubKey = pub
 		if _, err := nip19.EncodePublicKey(pub); err != nil {
 			return err
 		}
+		ev.PubKey = pub
 	} else {
 		return err
-	}
-
-	if rid != "" {
-		ev.Tags = ev.Tags.AppendUnique(nostr.Tag{"e", rid, relay.URL, "reply"})
-	}
-	if qid != "" {
-		ev.Tags = ev.Tags.AppendUnique(nostr.Tag{"e", qid, relay.URL, "mention"})
 	}
 
 	ev.CreatedAt = time.Now()
@@ -146,9 +137,63 @@ func newNote(cCtx *cli.Context) error {
 	return nil
 }
 
-func boost(cCtx *cli.Context) error {
+func reply(cCtx *cli.Context) error {
+	stdin := cCtx.Bool("stdin")
 	id := cCtx.String("id")
-	pid := cCtx.String("pid")
+	quote := cCtx.Bool("quote")
+
+	cfg := cCtx.App.Metadata["config"].(*Config)
+	relay := cfg.findRelay()
+	if relay == nil {
+		return errors.New("cannot connect relays")
+	}
+	defer relay.Close()
+
+	var sk string
+	if _, s, err := nip19.Decode(cfg.PrivateKey); err != nil {
+		return err
+	} else {
+		sk = s.(string)
+	}
+	ev := nostr.Event{}
+	if pub, err := nostr.GetPublicKey(sk); err == nil {
+		if _, err := nip19.EncodePublicKey(pub); err != nil {
+			return err
+		}
+		ev.PubKey = pub
+	} else {
+		return err
+	}
+
+	if _, tmp, err := nip19.Decode(id); err == nil {
+		id = tmp.(string)
+	}
+	if !quote {
+		ev.Tags = ev.Tags.AppendUnique(nostr.Tag{"e", id, relay.URL, "reply"})
+	} else {
+		ev.Tags = ev.Tags.AppendUnique(nostr.Tag{"e", id, relay.URL, "mention"})
+	}
+
+	ev.CreatedAt = time.Now()
+	ev.Kind = nostr.KindTextNote
+	if stdin {
+		b, err := ioutil.ReadAll(os.Stdin)
+		if err != nil {
+			return err
+		}
+		ev.Content = string(b)
+	} else {
+		ev.Content = strings.Join(cCtx.Args().Slice(), "\n")
+	}
+	ev.Sign(sk)
+	status := relay.Publish(context.Background(), ev)
+	fmt.Println(status)
+
+	return nil
+}
+
+func renote(cCtx *cli.Context) error {
+	id := cCtx.String("id")
 
 	cfg := cCtx.App.Metadata["config"].(*Config)
 	relay := cfg.findRelay()
@@ -167,21 +212,23 @@ func boost(cCtx *cli.Context) error {
 	if pub, err := nostr.GetPublicKey(sk); err == nil {
 		if _, err := nip19.EncodePublicKey(pub); err != nil {
 			return err
-		} else {
-			ev.PubKey = pub
 		}
+		ev.PubKey = pub
 	} else {
 		return err
 	}
+
 	if _, tmp, err := nip19.Decode(id); err == nil {
 		ev.Tags = ev.Tags.AppendUnique(nostr.Tag{"e", tmp.(string)})
 	} else {
 		ev.Tags = ev.Tags.AppendUnique(nostr.Tag{"e", id})
 	}
-	if _, tmp, err := nip19.Decode(pid); err == nil {
-		ev.Tags = ev.Tags.AppendUnique(nostr.Tag{"p", tmp.(string)})
-	} else {
-		ev.Tags = ev.Tags.AppendUnique(nostr.Tag{"p", pid})
+	filter := nostr.Filter{
+		Kinds: []int{nostr.KindTextNote},
+		IDs:   []string{id},
+	}
+	for _, tmp := range relay.QuerySync(context.Background(), filter) {
+		ev.Tags = ev.Tags.AppendUnique(nostr.Tag{"p", tmp.ID})
 	}
 	ev.CreatedAt = time.Now()
 	ev.Kind = nostr.KindBoost
@@ -195,7 +242,6 @@ func boost(cCtx *cli.Context) error {
 
 func vote(cCtx *cli.Context) error {
 	id := cCtx.String("id")
-	pid := cCtx.String("pid")
 
 	cfg := cCtx.App.Metadata["config"].(*Config)
 	relay := cfg.findRelay()
@@ -214,21 +260,23 @@ func vote(cCtx *cli.Context) error {
 	if pub, err := nostr.GetPublicKey(sk); err == nil {
 		if _, err := nip19.EncodePublicKey(pub); err != nil {
 			return err
-		} else {
-			ev.PubKey = pub
 		}
+		ev.PubKey = pub
 	} else {
 		return err
 	}
+
 	if _, tmp, err := nip19.Decode(id); err == nil {
 		ev.Tags = ev.Tags.AppendUnique(nostr.Tag{"e", tmp.(string)})
 	} else {
 		ev.Tags = ev.Tags.AppendUnique(nostr.Tag{"e", id})
 	}
-	if _, tmp, err := nip19.Decode(pid); err == nil {
-		ev.Tags = ev.Tags.AppendUnique(nostr.Tag{"p", tmp.(string)})
-	} else {
-		ev.Tags = ev.Tags.AppendUnique(nostr.Tag{"p", pid})
+	filter := nostr.Filter{
+		Kinds: []int{nostr.KindTextNote},
+		IDs:   []string{id},
+	}
+	for _, tmp := range relay.QuerySync(context.Background(), filter) {
+		ev.Tags = ev.Tags.AppendUnique(nostr.Tag{"p", tmp.ID})
 	}
 	ev.CreatedAt = time.Now()
 	ev.Kind = nostr.KindReaction
@@ -339,17 +387,6 @@ func main() {
 		Description: "A cli application for nostr",
 		Commands: []*cli.Command{
 			{
-				Name:    "note",
-				Aliases: []string{"n"},
-				Usage:   "post new note",
-				Flags: []cli.Flag{
-					&cli.BoolFlag{Name: "stdin"},
-					&cli.StringFlag{Name: "rid"},
-					&cli.StringFlag{Name: "qid"},
-				},
-				Action: newNote,
-			},
-			{
 				Name:    "timeline",
 				Aliases: []string{"tl"},
 				Usage:   "show timeline",
@@ -359,14 +396,33 @@ func main() {
 				Action: timeline,
 			},
 			{
-				Name:    "boost",
+				Name:    "note",
+				Aliases: []string{"n"},
+				Usage:   "post new note",
+				Flags: []cli.Flag{
+					&cli.BoolFlag{Name: "stdin"},
+				},
+				Action: note,
+			},
+			{
+				Name:    "reply",
+				Aliases: []string{"n"},
+				Usage:   "reply to the note",
+				Flags: []cli.Flag{
+					&cli.BoolFlag{Name: "stdin"},
+					&cli.StringFlag{Name: "id", Required: true},
+					&cli.BoolFlag{Name: "quote"},
+				},
+				Action: reply,
+			},
+			{
+				Name:    "renote",
 				Aliases: []string{"b"},
-				Usage:   "boost the note",
+				Usage:   "renote the note",
 				Flags: []cli.Flag{
 					&cli.StringFlag{Name: "id", Required: true},
-					&cli.StringFlag{Name: "pid", Required: true},
 				},
-				Action: boost,
+				Action: renote,
 			},
 			{
 				Name:    "vote",
@@ -374,7 +430,6 @@ func main() {
 				Usage:   "vote the note",
 				Flags: []cli.Flag{
 					&cli.StringFlag{Name: "id", Required: true},
-					&cli.StringFlag{Name: "pid", Required: true},
 				},
 				Action: vote,
 			},
