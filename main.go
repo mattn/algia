@@ -295,6 +295,7 @@ func vote(cCtx *cli.Context) error {
 }
 
 func timeline(cCtx *cli.Context) error {
+	n := cCtx.Int("n")
 	j := cCtx.Bool("json")
 
 	cfg := cCtx.App.Metadata["config"].(*Config)
@@ -342,7 +343,7 @@ func timeline(cCtx *cli.Context) error {
 	filters = append(filters, nostr.Filter{
 		Kinds:   []int{nostr.KindTextNote},
 		Authors: follows,
-		Limit:   30,
+		Limit:   n,
 	})
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	sub := relay.Subscribe(ctx, filters)
@@ -396,6 +397,7 @@ func main() {
 				Aliases: []string{"tl"},
 				Usage:   "show timeline",
 				Flags: []cli.Flag{
+					&cli.IntFlag{Name: "n", Value: 30},
 					&cli.BoolFlag{Name: "json"},
 				},
 				Action: timeline,
