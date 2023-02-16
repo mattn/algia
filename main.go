@@ -165,7 +165,15 @@ func boost(cCtx *cli.Context) error {
 	} else {
 		sk = s.(string)
 	}
-	// FIXME
+	if pub, err := nostr.GetPublicKey(sk); err == nil {
+		if _, err := nip19.EncodePublicKey(pub); err != nil {
+			return err
+		} else {
+			ev.PubKey = pub
+		}
+	} else {
+		return err
+	}
 	ev.Tags = ev.Tags.AppendUnique(nostr.Tag{"p", pid})
 	ev.CreatedAt = time.Now()
 	ev.Kind = nostr.KindBoost
@@ -196,7 +204,15 @@ func vote(cCtx *cli.Context) error {
 	} else {
 		sk = s.(string)
 	}
-	// FIXME
+	if pub, err := nostr.GetPublicKey(sk); err == nil {
+		if _, err := nip19.EncodePublicKey(pub); err != nil {
+			return err
+		} else {
+			ev.PubKey = pub
+		}
+	} else {
+		return err
+	}
 	ev.Tags = ev.Tags.AppendUnique(nostr.Tag{"p", pid})
 	ev.CreatedAt = time.Now()
 	ev.Kind = nostr.KindReaction
