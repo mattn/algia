@@ -99,7 +99,7 @@ func (cfg *Config) save() error {
 	return ioutil.WriteFile(fp, b, 0644)
 }
 
-func note(cCtx *cli.Context) error {
+func post(cCtx *cli.Context) error {
 	stdin := cCtx.Bool("stdin")
 
 	cfg := cCtx.App.Metadata["config"].(*Config)
@@ -198,7 +198,7 @@ func reply(cCtx *cli.Context) error {
 	return nil
 }
 
-func renote(cCtx *cli.Context) error {
+func repost(cCtx *cli.Context) error {
 	id := cCtx.String("id")
 
 	cfg := cCtx.App.Metadata["config"].(*Config)
@@ -246,7 +246,7 @@ func renote(cCtx *cli.Context) error {
 	return nil
 }
 
-func vote(cCtx *cli.Context) error {
+func like(cCtx *cli.Context) error {
 	id := cCtx.String("id")
 
 	cfg := cCtx.App.Metadata["config"].(*Config)
@@ -409,17 +409,17 @@ func main() {
 				Action: timeline,
 			},
 			{
-				Name:    "note",
+				Name:    "post",
 				Aliases: []string{"n"},
 				Usage:   "post new note",
 				Flags: []cli.Flag{
 					&cli.BoolFlag{Name: "stdin"},
 				},
-				Action: note,
+				Action: post,
 			},
 			{
 				Name:    "reply",
-				Aliases: []string{"n"},
+				Aliases: []string{"r"},
 				Usage:   "reply to the note",
 				Flags: []cli.Flag{
 					&cli.BoolFlag{Name: "stdin"},
@@ -429,22 +429,22 @@ func main() {
 				Action: reply,
 			},
 			{
-				Name:    "renote",
+				Name:    "repost",
 				Aliases: []string{"b"},
-				Usage:   "renote the note",
+				Usage:   "repost the note",
 				Flags: []cli.Flag{
 					&cli.StringFlag{Name: "id", Required: true},
 				},
-				Action: renote,
+				Action: repost,
 			},
 			{
-				Name:    "vote",
-				Aliases: []string{"v"},
-				Usage:   "vote the note",
+				Name:    "like",
+				Aliases: []string{"l"},
+				Usage:   "like the note",
 				Flags: []cli.Flag{
 					&cli.StringFlag{Name: "id", Required: true},
 				},
-				Action: vote,
+				Action: like,
 			},
 		},
 		Metadata: map[string]any{
