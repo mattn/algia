@@ -16,10 +16,10 @@ DESCRIPTION:
 
 COMMANDS:
    timeline, tl  show timeline
-   note, n       post new note
-   reply, n      reply to the note
-   renote, b     renote the note
-   vote, v       vote the note
+   post, n       post new note
+   reply, r      reply to the note
+   repost, b     repost the note
+   like, l       like the note
    help, h       Shows a list of commands or help for one command
 
 GLOBAL OPTIONS:
