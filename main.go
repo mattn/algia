@@ -46,15 +46,31 @@ type Profile struct {
 	Name        string `json:"name"`
 }
 
-func loadConfig() (*Config, error) {
+func loadConfig(profile string) (*Config, error) {
 	dir, err := os.UserConfigDir()
 	if err != nil {
 		return nil, err
 	}
+	dir = filepath.Join(dir, "algia")
 
-	fp := filepath.Join(dir, "algia")
-	os.MkdirAll(fp, 0700)
-	fp = filepath.Join(fp, "config.json")
+	var fp string
+	if profile == "" {
+		fp = filepath.Join(dir, "config.json")
+	} else if profile == "?" {
+		names, err := filepath.Glob(filepath.Join(dir, "config-*.json"))
+		if err != nil {
+			return nil, err
+		}
+		for _, name := range names {
+			name = filepath.Base(name)
+			name = strings.TrimLeft(name[6:len(name)-5], "-")
+			fmt.Println(name)
+		}
+		os.Exit(0)
+	} else {
+		fp = filepath.Join(dir, "config-"+profile+".json")
+	}
+	os.MkdirAll(filepath.Dir(fp), 0700)
 
 	b, err := ioutil.ReadFile(fp)
 	if err != nil {
@@ -389,20 +405,18 @@ func timeline(cCtx *cli.Context) error {
 }
 
 func main() {
-	cfg, err := loadConfig()
-	if err != nil {
-		log.Fatal(err)
-	}
-
 	app := &cli.App{
 		Description: "A cli application for nostr",
+		Flags: []cli.Flag{
+			&cli.StringFlag{Name: "a", Usage: "profile name"},
+		},
 		Commands: []*cli.Command{
 			{
 				Name:    "timeline",
 				Aliases: []string{"tl"},
 				Usage:   "show timeline",
 				Flags: []cli.Flag{
-					&cli.IntFlag{Name: "n", Value: 30},
+					&cli.IntFlag{Name: "n", Value: 30, Usage: "number of items"},
 					&cli.BoolFlag{Name: "json", Usage: "output JSON"},
 					&cli.BoolFlag{Name: "extra", Usage: "extra JSON"},
 				},
@@ -447,8 +461,16 @@ func main() {
 				Action: like,
 			},
 		},
-		Metadata: map[string]any{
-			"config": cfg,
+		Before: func(cCtx *cli.Context) error {
+			profile := cCtx.String("a")
+			cfg, err := loadConfig(profile)
+			if err != nil {
+				return err
+			}
+			cCtx.App.Metadata = map[string]any{
+				"config": cfg,
+			}
+			return nil
 		},
 	}
 
