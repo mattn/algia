@@ -84,7 +84,7 @@ func loadConfig(profile string) (*Config, error) {
 	return &cfg, nil
 }
 
-func (cfg *Config) findRelay(write bool) *nostr.Relay {
+func (cfg *Config) FindRelay(write bool) *nostr.Relay {
 	for k, v := range cfg.Relays {
 		if write && !v.Write {
 			continue
@@ -94,11 +94,33 @@ func (cfg *Config) findRelay(write bool) *nostr.Relay {
 		}
 		ctx := context.WithValue(context.Background(), "url", k)
 		relay, err := nostr.RelayConnect(ctx, k)
-		if err == nil {
-			return relay
+		if err != nil {
+			continue
 		}
+		return relay
 	}
 	return nil
+}
+
+func (cfg *Config) Do(write bool, f func(*nostr.Relay) bool) {
+	for k, v := range cfg.Relays {
+		if write && !v.Write {
+			continue
+		}
+		if !write && !v.Read {
+			continue
+		}
+		ctx := context.WithValue(context.Background(), "url", k)
+		relay, err := nostr.RelayConnect(ctx, k)
+		if err != nil {
+			continue
+		}
+		ret := f(relay)
+		relay.Close()
+		if !ret {
+			break
+		}
+	}
 }
 
 func (cfg *Config) save() error {
@@ -119,11 +141,6 @@ func post(cCtx *cli.Context) error {
 	stdin := cCtx.Bool("stdin")
 
 	cfg := cCtx.App.Metadata["config"].(*Config)
-	relay := cfg.findRelay(true)
-	if relay == nil {
-		return errors.New("cannot connect relays")
-	}
-	defer relay.Close()
 
 	var sk string
 	if _, s, err := nip19.Decode(cfg.PrivateKey); err != nil {
@@ -141,8 +158,6 @@ func post(cCtx *cli.Context) error {
 		return err
 	}
 
-	ev.CreatedAt = time.Now()
-	ev.Kind = nostr.KindTextNote
 	if stdin {
 		b, err := ioutil.ReadAll(os.Stdin)
 		if err != nil {
@@ -152,10 +167,24 @@ func post(cCtx *cli.Context) error {
 	} else {
 		ev.Content = strings.Join(cCtx.Args().Slice(), "\n")
 	}
-	ev.Sign(sk)
-	status := relay.Publish(context.Background(), ev)
-	fmt.Println(status)
 
+	ev.CreatedAt = time.Now()
+	ev.Kind = nostr.KindTextNote
+	ev.Sign(sk)
+
+	success := 0
+	cfg.Do(true, func(relay *nostr.Relay) bool {
+		time.Sleep(time.Second)
+		status := relay.Publish(context.Background(), ev)
+		fmt.Println(relay.URL, status)
+		if status != nostr.PublishStatusFailed {
+			success++
+		}
+		return true
+	})
+	if success == 0 {
+		return errors.New("cannot post")
+	}
 	return nil
 }
 
@@ -165,11 +194,6 @@ func reply(cCtx *cli.Context) error {
 	quote := cCtx.Bool("quote")
 
 	cfg := cCtx.App.Metadata["config"].(*Config)
-	relay := cfg.findRelay(true)
-	if relay == nil {
-		return errors.New("cannot connect relays")
-	}
-	defer relay.Close()
 
 	var sk string
 	if _, s, err := nip19.Decode(cfg.PrivateKey); err != nil {
@@ -190,11 +214,6 @@ func reply(cCtx *cli.Context) error {
 	if _, tmp, err := nip19.Decode(id); err == nil {
 		id = tmp.(string)
 	}
-	if !quote {
-		ev.Tags = ev.Tags.AppendUnique(nostr.Tag{"e", id, relay.URL, "reply"})
-	} else {
-		ev.Tags = ev.Tags.AppendUnique(nostr.Tag{"e", id, relay.URL, "mention"})
-	}
 
 	ev.CreatedAt = time.Now()
 	ev.Kind = nostr.KindTextNote
@@ -207,10 +226,23 @@ func reply(cCtx *cli.Context) error {
 	} else {
 		ev.Content = strings.Join(cCtx.Args().Slice(), "\n")
 	}
-	ev.Sign(sk)
-	status := relay.Publish(context.Background(), ev)
-	fmt.Println(status)
 
+	success := 0
+	cfg.Do(true, func(relay *nostr.Relay) bool {
+		if !quote {
+			ev.Tags = ev.Tags.AppendUnique(nostr.Tag{"e", id, relay.URL, "reply"})
+		} else {
+			ev.Tags = ev.Tags.AppendUnique(nostr.Tag{"e", id, relay.URL, "mention"})
+		}
+		ev.Sign(sk)
+		if relay.Publish(context.Background(), ev) != nostr.PublishStatusFailed {
+			success++
+		}
+		return true
+	})
+	if success == 0 {
+		return errors.New("cannot reply")
+	}
 	return nil
 }
 
@@ -218,11 +250,6 @@ func repost(cCtx *cli.Context) error {
 	id := cCtx.String("id")
 
 	cfg := cCtx.App.Metadata["config"].(*Config)
-	relay := cfg.findRelay(true)
-	if relay == nil {
-		return errors.New("cannot connect relays")
-	}
-	defer relay.Close()
 
 	ev := nostr.Event{}
 	var sk string
@@ -249,16 +276,29 @@ func repost(cCtx *cli.Context) error {
 		Kinds: []int{nostr.KindTextNote},
 		IDs:   []string{id},
 	}
-	for _, tmp := range relay.QuerySync(context.Background(), filter) {
-		ev.Tags = ev.Tags.AppendUnique(nostr.Tag{"p", tmp.ID})
-	}
+
 	ev.CreatedAt = time.Now()
 	ev.Kind = nostr.KindBoost
 	ev.Content = ""
-	ev.Sign(sk)
-	status := relay.Publish(context.Background(), ev)
-	fmt.Println(status)
 
+	success := 0
+	first := true
+	cfg.Do(true, func(relay *nostr.Relay) bool {
+		if first {
+			for _, tmp := range relay.QuerySync(context.Background(), filter) {
+				ev.Tags = ev.Tags.AppendUnique(nostr.Tag{"p", tmp.ID})
+			}
+			first = false
+			ev.Sign(sk)
+		}
+		if relay.Publish(context.Background(), ev) != nostr.PublishStatusFailed {
+			success++
+		}
+		return true
+	})
+	if success == 0 {
+		return errors.New("cannot repost")
+	}
 	return nil
 }
 
@@ -266,11 +306,6 @@ func like(cCtx *cli.Context) error {
 	id := cCtx.String("id")
 
 	cfg := cCtx.App.Metadata["config"].(*Config)
-	relay := cfg.findRelay(true)
-	if relay == nil {
-		return errors.New("cannot connect relays")
-	}
-	defer relay.Close()
 
 	ev := nostr.Event{}
 	var sk string
@@ -297,16 +332,28 @@ func like(cCtx *cli.Context) error {
 		Kinds: []int{nostr.KindTextNote},
 		IDs:   []string{id},
 	}
-	for _, tmp := range relay.QuerySync(context.Background(), filter) {
-		ev.Tags = ev.Tags.AppendUnique(nostr.Tag{"p", tmp.ID})
-	}
+
 	ev.CreatedAt = time.Now()
 	ev.Kind = nostr.KindReaction
 	ev.Content = "+"
-	ev.Sign(sk)
-	status := relay.Publish(context.Background(), ev)
-	fmt.Println(status)
 
+	success := 0
+	first := true
+	cfg.Do(true, func(relay *nostr.Relay) bool {
+		if first {
+			for _, tmp := range relay.QuerySync(context.Background(), filter) {
+				ev.Tags = ev.Tags.AppendUnique(nostr.Tag{"p", tmp.ID})
+			}
+			ev.Sign(sk)
+		}
+		if relay.Publish(context.Background(), ev) != nostr.PublishStatusFailed {
+			success++
+		}
+		return true
+	})
+	if success == 0 {
+		return errors.New("cannot like")
+	}
 	return nil
 }
 
@@ -316,7 +363,7 @@ func timeline(cCtx *cli.Context) error {
 	extra := cCtx.Bool("extra")
 
 	cfg := cCtx.App.Metadata["config"].(*Config)
-	relay := cfg.findRelay(false)
+	relay := cfg.FindRelay(false)
 	if relay == nil {
 		return errors.New("cannot connect relays")
 	}
