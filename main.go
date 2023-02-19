@@ -140,6 +140,9 @@ func (cfg *Config) save() error {
 func doPost(cCtx *cli.Context) error {
 	stdin := cCtx.Bool("stdin")
 	verbose := cCtx.Bool("verbose")
+	if !stdin && cCtx.Args().Len() == 0 {
+		return cli.ShowSubcommandHelp(cCtx)
+	}
 
 	cfg := cCtx.App.Metadata["config"].(*Config)
 
@@ -195,6 +198,9 @@ func doReply(cCtx *cli.Context) error {
 	verbose := cCtx.Bool("verbose")
 	id := cCtx.String("id")
 	quote := cCtx.Bool("quote")
+	if !stdin && cCtx.Args().Len() == 0 {
+		return cli.ShowSubcommandHelp(cCtx)
+	}
 
 	cfg := cCtx.App.Metadata["config"].(*Config)
 
@@ -544,49 +550,61 @@ func main() {
 			{
 				Name:    "post",
 				Aliases: []string{"n"},
-				Usage:   "post new note",
 				Flags: []cli.Flag{
 					&cli.BoolFlag{Name: "stdin"},
 				},
-				Action: doPost,
+				Usage:     "post new note",
+				UsageText: "algia post [note text]",
+				HelpName:  "post",
+				ArgsUsage: "[note text]",
+				Action:    doPost,
 			},
 			{
 				Name:    "reply",
 				Aliases: []string{"r"},
-				Usage:   "reply to the note",
 				Flags: []cli.Flag{
 					&cli.BoolFlag{Name: "stdin"},
 					&cli.StringFlag{Name: "id", Required: true},
 					&cli.BoolFlag{Name: "quote"},
 				},
-				Action: doReply,
+				Usage:     "reply to the note",
+				UsageText: "algia reply --id [id] [note text]",
+				HelpName:  "reply",
+				ArgsUsage: "[note text]",
+				Action:    doReply,
 			},
 			{
 				Name:    "repost",
 				Aliases: []string{"b"},
-				Usage:   "repost the note",
 				Flags: []cli.Flag{
 					&cli.StringFlag{Name: "id", Required: true},
 				},
-				Action: doRepost,
+				Usage:     "repost the note",
+				UsageText: "algia repost --id [id]",
+				HelpName:  "repost",
+				Action:    doRepost,
 			},
 			{
 				Name:    "like",
 				Aliases: []string{"l"},
-				Usage:   "like the note",
 				Flags: []cli.Flag{
 					&cli.StringFlag{Name: "id", Required: true},
 				},
-				Action: doLike,
+				Usage:     "like the note",
+				UsageText: "algia like --id [id]",
+				HelpName:  "lite",
+				Action:    doLike,
 			},
 			{
 				Name:    "delete",
 				Aliases: []string{"d"},
-				Usage:   "delete the note",
 				Flags: []cli.Flag{
 					&cli.StringFlag{Name: "id", Required: true},
 				},
-				Action: doDelete,
+				Usage:     "delete the note",
+				UsageText: "algia delete --id [id]",
+				HelpName:  "delete",
+				Action:    doDelete,
 			},
 		},
 		Before: func(cCtx *cli.Context) error {
