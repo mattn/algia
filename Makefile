@@ -45,7 +45,7 @@ ifneq ($(shell git status --porcelain),)
 	$(error git workspace is dirty)
 endif
 ifneq ($(shell git rev-parse --abbrev-ref HEAD),main)
-	$(error current branch is not master)
+	$(error current branch is not main)
 endif
 	@gobump up -w .
 	git commit -am "bump up version to $(VERSION)"
