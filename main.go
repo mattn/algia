@@ -19,6 +19,12 @@ import (
 	"github.com/nbd-wtf/go-nostr/nip19"
 )
 
+const name = "algia"
+
+const version = "0.0.1"
+
+var revision = "HEAD"
+
 type Relay struct {
 	Read  bool
 	Write bool
