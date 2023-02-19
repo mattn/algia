@@ -20,14 +20,20 @@ COMMANDS:
    reply, r      reply to the note
    repost, b     repost the note
    like, l       like the note
+   delete, d     delete the note
    help, h       Shows a list of commands or help for one command
 
 GLOBAL OPTIONS:
+   -a value    profile name
+   -V          verbose (default: false)
    --help, -h  show help
 ```
 
 ## Installation
 
+Download binary from Release page.
+
+Or install with go install command.
 ```
 go install github.com/mattn/algia@latest
 ```
@@ -54,6 +60,12 @@ Minimal configuration. Need to be at ~/.config/algia/config.json
 * [x] like
 * [x] repost
 * [ ] upload images
+
+## FAQ
+
+Do you use proxy? then set environment variable `HTTP_PROXY` like below.
+
+    HTTP_PROXY=http://myproxy.example.com:8080
 
 ## License
 
