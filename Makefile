@@ -44,7 +44,7 @@ bump: $(GOBIN)/gobump
 ifneq ($(shell git status --porcelain),)
 	$(error git workspace is dirty)
 endif
-ifneq ($(shell git rev-parse --abbrev-ref HEAD),master)
+ifneq ($(shell git rev-parse --abbrev-ref HEAD),main)
 	$(error current branch is not master)
 endif
 	@gobump up -w .
