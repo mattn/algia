@@ -461,13 +461,49 @@ func doSearch(cCtx *cli.Context) error {
 	}
 	defer relay.Close()
 
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	// get followers
+	follows := []string{}
+	if cfg.Updated.Add(3*time.Hour).Before(time.Now()) || len(cfg.Follows) == 0 {
+		cfg.Follows = map[string]Profile{}
+		for _, ev := range relay.QuerySync(context.Background(), nostr.Filter{Kinds: []int{nostr.KindContactList}}) {
+			follows = append(follows, ev.PubKey)
+		}
+		if cfg.verbose {
+			fmt.Printf("found %d followers\n", len(follows))
+		}
+		if len(follows) > 0 {
+			// get follower's desecriptions
+			evs := relay.QuerySync(context.Background(), nostr.Filter{
+				Kinds:   []int{nostr.KindSetMetadata},
+				Authors: follows,
+			})
+
+			for _, ev := range evs {
+				var profile Profile
+				err := json.Unmarshal([]byte(ev.Content), &profile)
+				if err == nil {
+					cfg.Follows[ev.PubKey] = profile
+				}
+			}
+		}
+
+		cfg.Updated = time.Now()
+		if err := cfg.save(); err != nil {
+			return err
+		}
+	} else {
+		for k := range cfg.Follows {
+			follows = append(follows, k)
+		}
+	}
+
 	filters := []nostr.Filter{}
 	filters = append(filters, nostr.Filter{
 		Kinds:  []int{nostr.KindTextNote},
 		Search: strings.Join(cCtx.Args().Slice(), " "),
 		Limit:  n,
 	})
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	sub := relay.Subscribe(ctx, filters)
 	go func() {
 		<-sub.EndOfStoredEvents
