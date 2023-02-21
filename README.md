@@ -46,8 +46,9 @@ Minimal configuration. Need to be at ~/.config/algia/config.json
 {
   "relays": {
     "wss://nostr.h3z.jp": {
-      "Read": true,
-      "Write": true
+      "read": true,
+      "write": true,
+      "search": false
     }
   },
   "privatekey": "nsecXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX"
