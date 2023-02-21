@@ -450,6 +450,7 @@ func doDelete(cCtx *cli.Context) error {
 }
 
 func doSearch(cCtx *cli.Context) error {
+	n := cCtx.Int("n")
 	j := cCtx.Bool("json")
 	extra := cCtx.Bool("extra")
 
@@ -465,7 +466,7 @@ func doSearch(cCtx *cli.Context) error {
 	filters = append(filters, nostr.Filter{
 		Kinds:  []int{nostr.KindTextNote},
 		Search: strings.Join(cCtx.Args().Slice(), " "),
-		Limit:  30,
+		Limit:  n,
 	})
 	sub := relay.Subscribe(ctx, filters)
 	go func() {
@@ -685,8 +686,13 @@ func main() {
 				Action:    doDelete,
 			},
 			{
-				Name:      "search",
-				Aliases:   []string{"s"},
+				Name:    "search",
+				Aliases: []string{"s"},
+				Flags: []cli.Flag{
+					&cli.IntFlag{Name: "n", Value: 30, Usage: "number of items"},
+					&cli.BoolFlag{Name: "json", Usage: "output JSON"},
+					&cli.BoolFlag{Name: "extra", Usage: "extra JSON"},
+				},
 				Usage:     "search notes",
 				UsageText: "algia search [words]",
 				HelpName:  "search",
