@@ -25,8 +25,9 @@ const version = "0.0.1"
 var revision = "HEAD"
 
 type Relay struct {
-	Read  bool
-	Write bool
+	Read   bool
+	Write  bool
+	Search bool
 }
 
 type Config struct {
@@ -90,12 +91,12 @@ func loadConfig(profile string) (*Config, error) {
 	return &cfg, nil
 }
 
-func (cfg *Config) FindRelay(write bool) *nostr.Relay {
+func (cfg *Config) FindRelay(r Relay) *nostr.Relay {
 	for k, v := range cfg.Relays {
-		if write && !v.Write {
+		if r.Write && !v.Write {
 			continue
 		}
-		if !write && !v.Read {
+		if !r.Write && !v.Read {
 			continue
 		}
 		ctx := context.WithValue(context.Background(), "url", k)
@@ -111,12 +112,15 @@ func (cfg *Config) FindRelay(write bool) *nostr.Relay {
 	return nil
 }
 
-func (cfg *Config) Do(write bool, f func(*nostr.Relay) bool) {
+func (cfg *Config) Do(r Relay, f func(*nostr.Relay) bool) {
 	for k, v := range cfg.Relays {
-		if write && !v.Write {
+		if r.Write && !v.Write {
 			continue
 		}
-		if !write && !v.Read {
+		if r.Search && !v.Search {
+			continue
+		}
+		if !r.Write && !v.Read {
 			continue
 		}
 		ctx := context.WithValue(context.Background(), "url", k)
@@ -188,7 +192,7 @@ func doPost(cCtx *cli.Context) error {
 	ev.Sign(sk)
 
 	success := 0
-	cfg.Do(true, func(relay *nostr.Relay) bool {
+	cfg.Do(Relay{Write: true}, func(relay *nostr.Relay) bool {
 		status := relay.Publish(context.Background(), ev)
 		if cfg.verbose {
 			fmt.Fprintln(os.Stderr, relay.URL, status)
@@ -247,7 +251,7 @@ func doReply(cCtx *cli.Context) error {
 	}
 
 	success := 0
-	cfg.Do(true, func(relay *nostr.Relay) bool {
+	cfg.Do(Relay{Write: true}, func(relay *nostr.Relay) bool {
 		if !quote {
 			ev.Tags = ev.Tags.AppendUnique(nostr.Tag{"e", id, relay.URL, "reply"})
 		} else {
@@ -310,7 +314,7 @@ func doRepost(cCtx *cli.Context) error {
 
 	success := 0
 	first := true
-	cfg.Do(true, func(relay *nostr.Relay) bool {
+	cfg.Do(Relay{Write: true}, func(relay *nostr.Relay) bool {
 		if first {
 			for _, tmp := range relay.QuerySync(context.Background(), filter) {
 				ev.Tags = ev.Tags.AppendUnique(nostr.Tag{"p", tmp.ID})
@@ -370,7 +374,7 @@ func doLike(cCtx *cli.Context) error {
 
 	success := 0
 	first := true
-	cfg.Do(true, func(relay *nostr.Relay) bool {
+	cfg.Do(Relay{Write: true}, func(relay *nostr.Relay) bool {
 		if first {
 			for _, tmp := range relay.QuerySync(context.Background(), filter) {
 				ev.Tags = ev.Tags.AppendUnique(nostr.Tag{"p", tmp.ID})
@@ -425,7 +429,7 @@ func doDelete(cCtx *cli.Context) error {
 	ev.Sign(sk)
 
 	success := 0
-	cfg.Do(true, func(relay *nostr.Relay) bool {
+	cfg.Do(Relay{Write: true}, func(relay *nostr.Relay) bool {
 		status := relay.Publish(context.Background(), ev)
 		if cfg.verbose {
 			fmt.Fprintln(os.Stderr, relay.URL, status)
@@ -445,7 +449,7 @@ func doSearch(cCtx *cli.Context) error {
 	cfg := cCtx.App.Metadata["config"].(*Config)
 
 	success := 0
-	cfg.Do(true, func(relay *nostr.Relay) bool {
+	cfg.Do(Relay{Search: true}, func(relay *nostr.Relay) bool {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		filters := []nostr.Filter{}
 		filters = append(filters, nostr.Filter{
@@ -486,7 +490,7 @@ func doTimeline(cCtx *cli.Context) error {
 	extra := cCtx.Bool("extra")
 
 	cfg := cCtx.App.Metadata["config"].(*Config)
-	relay := cfg.FindRelay(false)
+	relay := cfg.FindRelay(Relay{Read: true})
 	if relay == nil {
 		return errors.New("cannot connect relays")
 	}
