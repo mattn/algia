@@ -96,6 +96,9 @@ func (cfg *Config) FindRelay(r Relay) *nostr.Relay {
 		if r.Write && !v.Write {
 			continue
 		}
+		if r.Search && !v.Search {
+			continue
+		}
 		if !r.Write && !v.Read {
 			continue
 		}
@@ -447,41 +450,61 @@ func doDelete(cCtx *cli.Context) error {
 }
 
 func doSearch(cCtx *cli.Context) error {
-	cfg := cCtx.App.Metadata["config"].(*Config)
+	j := cCtx.Bool("json")
+	extra := cCtx.Bool("extra")
 
-	success := 0
-	cfg.Do(Relay{Search: true}, func(relay *nostr.Relay) bool {
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-		filters := []nostr.Filter{}
-		filters = append(filters, nostr.Filter{
-			Kinds:  []int{nostr.KindTextNote},
-			Search: strings.Join(cCtx.Args().Slice(), " "),
-			Limit:  30,
-		})
-		sub := relay.Subscribe(ctx, filters)
-		go func() {
-			<-sub.EndOfStoredEvents
-			cancel()
-		}()
-		for ev := range sub.Events {
-			profile, ok := cfg.Follows[ev.PubKey]
-			if ok {
-				color.Set(color.FgHiRed)
-				fmt.Print(profile.Name)
-				color.Set(color.Reset)
-				fmt.Print(": ")
-				color.Set(color.FgHiBlue)
-				fmt.Println(ev.PubKey)
-				color.Set(color.Reset)
-				fmt.Println(ev.Content)
-			}
-			success++
-		}
-		return false
-	})
-	if success == 0 {
-		return errors.New("cannot search")
+	cfg := cCtx.App.Metadata["config"].(*Config)
+	relay := cfg.FindRelay(Relay{Search: true})
+	if relay == nil {
+		return errors.New("cannot connect relays")
 	}
+	defer relay.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	filters := []nostr.Filter{}
+	filters = append(filters, nostr.Filter{
+		Kinds:  []int{nostr.KindTextNote},
+		Search: strings.Join(cCtx.Args().Slice(), " "),
+		Limit:  30,
+	})
+	sub := relay.Subscribe(ctx, filters)
+	go func() {
+		<-sub.EndOfStoredEvents
+		cancel()
+	}()
+
+	if j {
+		for ev := range sub.Events {
+			if extra {
+				profile, ok := cfg.Follows[ev.PubKey]
+				if ok {
+					eev := Event{
+						Event:   ev,
+						Profile: profile,
+					}
+					json.NewEncoder(os.Stdout).Encode(eev)
+				}
+			} else {
+				json.NewEncoder(os.Stdout).Encode(ev)
+			}
+		}
+		return nil
+	}
+
+	for ev := range sub.Events {
+		profile, ok := cfg.Follows[ev.PubKey]
+		if ok {
+			color.Set(color.FgHiRed)
+			fmt.Print(profile.Name)
+			color.Set(color.Reset)
+			fmt.Print(": ")
+			color.Set(color.FgHiBlue)
+			fmt.Println(ev.PubKey)
+			color.Set(color.Reset)
+			fmt.Println(ev.Content)
+		}
+	}
+
 	return nil
 }
 
