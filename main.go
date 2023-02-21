@@ -533,13 +533,16 @@ func doSearch(cCtx *cli.Context) error {
 		if ok {
 			color.Set(color.FgHiRed)
 			fmt.Print(profile.Name)
-			color.Set(color.Reset)
-			fmt.Print(": ")
-			color.Set(color.FgHiBlue)
-			fmt.Println(ev.PubKey)
-			color.Set(color.Reset)
-			fmt.Println(ev.Content)
+		} else {
+			color.Set(color.FgRed)
+			fmt.Print(ev.PubKey)
 		}
+		color.Set(color.Reset)
+		fmt.Print(": ")
+		color.Set(color.FgHiBlue)
+		fmt.Println(ev.PubKey)
+		color.Set(color.Reset)
+		fmt.Println(ev.Content)
 	}
 
 	return nil
@@ -630,13 +633,16 @@ func doTimeline(cCtx *cli.Context) error {
 		if ok {
 			color.Set(color.FgHiRed)
 			fmt.Print(profile.Name)
-			color.Set(color.Reset)
-			fmt.Print(": ")
-			color.Set(color.FgHiBlue)
-			fmt.Println(ev.PubKey)
-			color.Set(color.Reset)
-			fmt.Println(ev.Content)
+		} else {
+			color.Set(color.FgRed)
+			fmt.Print(ev.PubKey)
 		}
+		color.Set(color.Reset)
+		fmt.Print(": ")
+		color.Set(color.FgHiBlue)
+		fmt.Println(ev.PubKey)
+		color.Set(color.Reset)
+		fmt.Println(ev.Content)
 	}
 
 	return nil
