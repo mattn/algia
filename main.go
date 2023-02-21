@@ -441,6 +441,44 @@ func doDelete(cCtx *cli.Context) error {
 	return nil
 }
 
+func doSearch(cCtx *cli.Context) error {
+	cfg := cCtx.App.Metadata["config"].(*Config)
+
+	success := 0
+	cfg.Do(true, func(relay *nostr.Relay) bool {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		filters := []nostr.Filter{}
+		filters = append(filters, nostr.Filter{
+			Kinds:  []int{nostr.KindTextNote},
+			Search: strings.Join(cCtx.Args().Slice(), " "),
+			Limit:  30,
+		})
+		sub := relay.Subscribe(ctx, filters)
+		go func() {
+			<-sub.EndOfStoredEvents
+			cancel()
+		}()
+		for ev := range sub.Events {
+			profile, ok := cfg.Follows[ev.PubKey]
+			if ok {
+				color.Set(color.FgHiRed)
+				fmt.Print(profile.Name)
+				color.Set(color.Reset)
+				fmt.Print(": ")
+				color.Set(color.FgHiBlue)
+				fmt.Println(ev.PubKey)
+				color.Set(color.Reset)
+				fmt.Println(ev.Content)
+			}
+		}
+		return false
+	})
+	if success == 0 {
+		return errors.New("cannot search")
+	}
+	return nil
+}
+
 func doTimeline(cCtx *cli.Context) error {
 	n := cCtx.Int("n")
 	j := cCtx.Bool("json")
@@ -616,6 +654,14 @@ func main() {
 				UsageText: "algia delete --id [id]",
 				HelpName:  "delete",
 				Action:    doDelete,
+			},
+			{
+				Name:      "search",
+				Aliases:   []string{"s"},
+				Usage:     "search notes",
+				UsageText: "algia search [words]",
+				HelpName:  "search",
+				Action:    doSearch,
 			},
 		},
 		Before: func(cCtx *cli.Context) error {
