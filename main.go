@@ -154,6 +154,7 @@ func doPost(cCtx *cli.Context) error {
 	if !stdin && cCtx.Args().Len() == 0 {
 		return cli.ShowSubcommandHelp(cCtx)
 	}
+	sensitive := cCtx.String("sensitive")
 
 	cfg := cCtx.App.Metadata["config"].(*Config)
 
@@ -181,6 +182,10 @@ func doPost(cCtx *cli.Context) error {
 		ev.Content = string(b)
 	} else {
 		ev.Content = strings.Join(cCtx.Args().Slice(), "\n")
+	}
+
+	if sensitive != "" {
+		ev.Tags = ev.Tags.AppendUnique(nostr.Tag{"content-warning", sensitive})
 	}
 
 	ev.CreatedAt = time.Now()
@@ -271,7 +276,6 @@ func doReply(cCtx *cli.Context) error {
 
 func doRepost(cCtx *cli.Context) error {
 	id := cCtx.String("id")
-	sensitive := cCtx.String("sensitive")
 
 	cfg := cCtx.App.Metadata["config"].(*Config)
 
@@ -295,9 +299,6 @@ func doRepost(cCtx *cli.Context) error {
 		ev.Tags = ev.Tags.AppendUnique(nostr.Tag{"e", tmp.(string)})
 	} else {
 		ev.Tags = ev.Tags.AppendUnique(nostr.Tag{"e", id})
-	}
-	if sensitive != "" {
-		ev.Tags = ev.Tags.AppendUnique(nostr.Tag{"content-warning", sensitive})
 	}
 	filter := nostr.Filter{
 		Kinds: []int{nostr.KindTextNote},
