@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"io/ioutil"
-	"log"
 	"os"
 	"path/filepath"
 	"strings"
@@ -35,6 +34,7 @@ type Config struct {
 	Follows    map[string]Profile `json:"follows"`
 	PrivateKey string             `json:"privatekey"`
 	Updated    time.Time          `json:"updated"`
+	verbose    bool
 }
 
 type Event struct {
@@ -101,6 +101,9 @@ func (cfg *Config) FindRelay(write bool) *nostr.Relay {
 		ctx := context.WithValue(context.Background(), "url", k)
 		relay, err := nostr.RelayConnect(ctx, k)
 		if err != nil {
+			if cfg.verbose {
+				fmt.Fprintln(os.Stderr, err.Error())
+			}
 			continue
 		}
 		return relay
@@ -119,6 +122,9 @@ func (cfg *Config) Do(write bool, f func(*nostr.Relay) bool) {
 		ctx := context.WithValue(context.Background(), "url", k)
 		relay, err := nostr.RelayConnect(ctx, k)
 		if err != nil {
+			if cfg.verbose {
+				fmt.Fprintln(os.Stderr, err)
+			}
 			continue
 		}
 		ret := f(relay)
@@ -145,7 +151,6 @@ func (cfg *Config) save() error {
 
 func doPost(cCtx *cli.Context) error {
 	stdin := cCtx.Bool("stdin")
-	verbose := cCtx.Bool("verbose")
 	if !stdin && cCtx.Args().Len() == 0 {
 		return cli.ShowSubcommandHelp(cCtx)
 	}
@@ -185,8 +190,8 @@ func doPost(cCtx *cli.Context) error {
 	success := 0
 	cfg.Do(true, func(relay *nostr.Relay) bool {
 		status := relay.Publish(context.Background(), ev)
-		if verbose {
-			fmt.Println(relay.URL, status)
+		if cfg.verbose {
+			fmt.Fprintln(os.Stderr, relay.URL, status)
 		}
 		if status != nostr.PublishStatusFailed {
 			success++
@@ -201,7 +206,6 @@ func doPost(cCtx *cli.Context) error {
 
 func doReply(cCtx *cli.Context) error {
 	stdin := cCtx.Bool("stdin")
-	verbose := cCtx.Bool("verbose")
 	id := cCtx.String("id")
 	quote := cCtx.Bool("quote")
 	if !stdin && cCtx.Args().Len() == 0 {
@@ -251,8 +255,8 @@ func doReply(cCtx *cli.Context) error {
 		}
 		ev.Sign(sk)
 		status := relay.Publish(context.Background(), ev)
-		if verbose {
-			fmt.Println(relay.URL, status)
+		if cfg.verbose {
+			fmt.Fprintln(os.Stderr, relay.URL, status)
 		}
 		if status != nostr.PublishStatusFailed {
 			success++
@@ -266,8 +270,8 @@ func doReply(cCtx *cli.Context) error {
 }
 
 func doRepost(cCtx *cli.Context) error {
-	verbose := cCtx.Bool("verbose")
 	id := cCtx.String("id")
+	sensitive := cCtx.String("sensitive")
 
 	cfg := cCtx.App.Metadata["config"].(*Config)
 
@@ -292,6 +296,9 @@ func doRepost(cCtx *cli.Context) error {
 	} else {
 		ev.Tags = ev.Tags.AppendUnique(nostr.Tag{"e", id})
 	}
+	if sensitive != "" {
+		ev.Tags = ev.Tags.AppendUnique(nostr.Tag{"content-warning", sensitive})
+	}
 	filter := nostr.Filter{
 		Kinds: []int{nostr.KindTextNote},
 		IDs:   []string{id},
@@ -312,8 +319,8 @@ func doRepost(cCtx *cli.Context) error {
 			ev.Sign(sk)
 		}
 		status := relay.Publish(context.Background(), ev)
-		if verbose {
-			fmt.Println(relay.URL, status)
+		if cfg.verbose {
+			fmt.Fprintln(os.Stderr, relay.URL, status)
 		}
 		if status != nostr.PublishStatusFailed {
 			success++
@@ -327,7 +334,6 @@ func doRepost(cCtx *cli.Context) error {
 }
 
 func doLike(cCtx *cli.Context) error {
-	verbose := cCtx.Bool("verbose")
 	id := cCtx.String("id")
 
 	cfg := cCtx.App.Metadata["config"].(*Config)
@@ -372,8 +378,8 @@ func doLike(cCtx *cli.Context) error {
 			ev.Sign(sk)
 		}
 		status := relay.Publish(context.Background(), ev)
-		if verbose {
-			fmt.Println(relay.URL, status)
+		if cfg.verbose {
+			fmt.Fprintln(os.Stderr, relay.URL, status)
 		}
 		if status != nostr.PublishStatusFailed {
 			success++
@@ -387,7 +393,6 @@ func doLike(cCtx *cli.Context) error {
 }
 
 func doDelete(cCtx *cli.Context) error {
-	verbose := cCtx.Bool("verbose")
 	id := cCtx.String("id")
 
 	cfg := cCtx.App.Metadata["config"].(*Config)
@@ -422,8 +427,8 @@ func doDelete(cCtx *cli.Context) error {
 	success := 0
 	cfg.Do(true, func(relay *nostr.Relay) bool {
 		status := relay.Publish(context.Background(), ev)
-		if verbose {
-			fmt.Println(relay.URL, status)
+		if cfg.verbose {
+			fmt.Fprintln(os.Stderr, relay.URL, status)
 		}
 		if status != nostr.PublishStatusFailed {
 			success++
@@ -437,7 +442,6 @@ func doDelete(cCtx *cli.Context) error {
 }
 
 func doTimeline(cCtx *cli.Context) error {
-	verbose := cCtx.Bool("verbose")
 	n := cCtx.Int("n")
 	j := cCtx.Bool("json")
 	extra := cCtx.Bool("extra")
@@ -456,7 +460,7 @@ func doTimeline(cCtx *cli.Context) error {
 		for _, ev := range relay.QuerySync(context.Background(), nostr.Filter{Kinds: []int{nostr.KindContactList}}) {
 			follows = append(follows, ev.PubKey)
 		}
-		if verbose {
+		if cfg.verbose {
 			fmt.Printf("found %d followers\n", len(follows))
 		}
 		if len(follows) > 0 {
@@ -558,6 +562,7 @@ func main() {
 				Aliases: []string{"n"},
 				Flags: []cli.Flag{
 					&cli.BoolFlag{Name: "stdin"},
+					&cli.StringFlag{Name: "sensitive"},
 				},
 				Usage:     "post new note",
 				UsageText: "algia post [note text]",
@@ -622,11 +627,13 @@ func main() {
 			cCtx.App.Metadata = map[string]any{
 				"config": cfg,
 			}
+			cfg.verbose = cCtx.Bool("V")
 			return nil
 		},
 	}
 
 	if err := app.Run(os.Args); err != nil {
-		log.Fatal(err)
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
 	}
 }
