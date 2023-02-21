@@ -470,6 +470,7 @@ func doSearch(cCtx *cli.Context) error {
 				color.Set(color.Reset)
 				fmt.Println(ev.Content)
 			}
+			success++
 		}
 		return false
 	})
