@@ -25,9 +25,9 @@ const version = "0.0.1"
 var revision = "HEAD"
 
 type Relay struct {
-	Read   bool
-	Write  bool
-	Search bool
+	Read   bool `json:"read"`
+	Write  bool `json:"write"`
+	Search bool `json:"search"`
 }
 
 type Config struct {
@@ -142,13 +142,19 @@ func (cfg *Config) Do(r Relay, f func(*nostr.Relay) bool) {
 	}
 }
 
-func (cfg *Config) save() error {
+func (cfg *Config) save(profile string) error {
 	dir, err := os.UserConfigDir()
 	if err != nil {
 		return err
 	}
-	fp := filepath.Join(dir, "algia")
-	fp = filepath.Join(fp, "config.json")
+	dir = filepath.Join(dir, "algia")
+
+	var fp string
+	if profile == "" {
+		fp = filepath.Join(dir, "config.json")
+	} else {
+		fp = filepath.Join(dir, "config-"+profile+".json")
+	}
 	b, err := json.MarshalIndent(&cfg, "", "  ")
 	if err != nil {
 		return err
@@ -488,7 +494,7 @@ func doSearch(cCtx *cli.Context) error {
 		}
 
 		cfg.Updated = time.Now()
-		if err := cfg.save(); err != nil {
+		if err := cfg.save(cCtx.String("a")); err != nil {
 			return err
 		}
 	} else {
@@ -497,13 +503,14 @@ func doSearch(cCtx *cli.Context) error {
 		}
 	}
 
+	// get timeline
 	filters := []nostr.Filter{}
 	filters = append(filters, nostr.Filter{
 		Kinds:  []int{nostr.KindTextNote},
 		Search: strings.Join(cCtx.Args().Slice(), " "),
 		Limit:  n,
 	})
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	sub := relay.Subscribe(ctx, filters)
 	go func() {
 		<-sub.EndOfStoredEvents
@@ -587,7 +594,7 @@ func doTimeline(cCtx *cli.Context) error {
 		}
 
 		cfg.Updated = time.Now()
-		if err := cfg.save(); err != nil {
+		if err := cfg.save(cCtx.String("a")); err != nil {
 			return err
 		}
 	} else {
@@ -603,7 +610,7 @@ func doTimeline(cCtx *cli.Context) error {
 		Authors: follows,
 		Limit:   n,
 	})
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	sub := relay.Subscribe(ctx, filters)
 	go func() {
 		<-sub.EndOfStoredEvents
