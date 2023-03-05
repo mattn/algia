@@ -10,15 +10,15 @@ all: clean build
 
 .PHONY: build
 build:
-	go build -ldflags=$(BUILD_LDFLAGS) -o $(BIN) .
+	go build -ldflags=$(BUILD_LDFLAGS) -o $(BIN) ./src
 
 .PHONY: install
 install:
-	go install -ldflags=$(BUILD_LDFLAGS) .
+	go install -ldflags=$(BUILD_LDFLAGS) ./src
 
 .PHONY: show-version
 show-version: $(GOBIN)/gobump
-	gobump show -r .
+	gobump show -r ./src
 
 $(GOBIN)/gobump:
 	go install github.com/x-motemen/gobump/cmd/gobump@latest
