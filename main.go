@@ -201,6 +201,9 @@ func doPost(cCtx *cli.Context) error {
 	} else {
 		ev.Content = strings.Join(cCtx.Args().Slice(), "\n")
 	}
+	if strings.TrimSpace(ev.Content) == "" {
+		return errors.New("content is empty")
+	}
 
 	if sensitive != "" {
 		ev.Tags = ev.Tags.AppendUnique(nostr.Tag{"content-warning", sensitive})
