@@ -668,6 +668,7 @@ func main() {
 		Description: "A cli application for nostr",
 		Flags: []cli.Flag{
 			&cli.StringFlag{Name: "a", Usage: "profile name"},
+			&cli.StringFlag{Name: "relays", Usage: "relays"},
 			&cli.BoolFlag{Name: "V", Usage: "verbose"},
 		},
 		Commands: []*cli.Command{
@@ -766,6 +767,15 @@ func main() {
 				"config": cfg,
 			}
 			cfg.verbose = cCtx.Bool("V")
+			if relays := strings.Split(cCtx.String("relays"), ","); len(relays) > 0 {
+				cfg.Relays = make(map[string]Relay)
+				for _, relay := range relays {
+					cfg.Relays[relay] = Relay{
+						Read:  true,
+						Write: true,
+					}
+				}
+			}
 			return nil
 		},
 	}
