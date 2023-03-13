@@ -38,6 +38,7 @@ type Config struct {
 	PrivateKey string             `json:"privatekey"`
 	Updated    time.Time          `json:"updated"`
 	verbose    bool
+	tempRelay  bool
 }
 
 type Event struct {
@@ -148,6 +149,9 @@ func (cfg *Config) Do(r Relay, f func(*nostr.Relay)) {
 }
 
 func (cfg *Config) save(profile string) error {
+	if cfg.tempRelay {
+		return nil
+	}
 	dir, err := os.UserConfigDir()
 	if err != nil {
 		return err
@@ -775,6 +779,7 @@ func main() {
 						Write: true,
 					}
 				}
+				cfg.tempRelay = true
 			}
 			return nil
 		},
