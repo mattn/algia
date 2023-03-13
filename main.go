@@ -771,9 +771,10 @@ func main() {
 				"config": cfg,
 			}
 			cfg.verbose = cCtx.Bool("V")
-			if relays := strings.Split(cCtx.String("relays"), ","); len(relays) > 0 {
+			relays := cCtx.String("relays")
+			if strings.TrimSpace(relays) != "" {
 				cfg.Relays = make(map[string]Relay)
-				for _, relay := range relays {
+				for _, relay := range strings.Split(relays, ",") {
 					cfg.Relays[relay] = Relay{
 						Read:  true,
 						Write: true,
