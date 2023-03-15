@@ -94,6 +94,50 @@ func loadConfig(profile string) (*Config, error) {
 	return &cfg, nil
 }
 
+func (cfg *Config) GetFollows(relay *nostr.Relay, profile string) (map[string]Profile, error) {
+	var pub string
+	if _, s, err := nip19.Decode(cfg.PrivateKey); err != nil {
+		return nil, err
+	} else {
+		if pub, err = nostr.GetPublicKey(s.(string)); err != nil {
+			return nil, err
+		}
+	}
+
+	// get followers
+	if cfg.Updated.Add(3*time.Hour).Before(time.Now()) || len(cfg.Follows) == 0 {
+		cfg.Follows = map[string]Profile{}
+		follows := []string{}
+		for _, ev := range relay.QuerySync(context.Background(), nostr.Filter{Kinds: []int{nostr.KindContactList}, Authors: []string{pub}, Limit: 1}) {
+			follows = append(follows, ev.PubKey)
+		}
+		if cfg.verbose {
+			fmt.Printf("found %d followers\n", len(follows))
+		}
+		if len(follows) > 0 {
+			// get follower's desecriptions
+			evs := relay.QuerySync(context.Background(), nostr.Filter{
+				Kinds:   []int{nostr.KindSetMetadata},
+				Authors: follows,
+			})
+
+			for _, ev := range evs {
+				var profile Profile
+				err := json.Unmarshal([]byte(ev.Content), &profile)
+				if err == nil {
+					cfg.Follows[ev.PubKey] = profile
+				}
+			}
+		}
+
+		cfg.Updated = time.Now()
+		if err := cfg.save(profile); err != nil {
+			return nil, err
+		}
+	}
+	return cfg.Follows, nil
+}
+
 func (cfg *Config) FindRelay(r Relay) *nostr.Relay {
 	for k, v := range cfg.Relays {
 		if r.Write && !v.Write {
@@ -104,6 +148,9 @@ func (cfg *Config) FindRelay(r Relay) *nostr.Relay {
 		}
 		if !r.Write && !v.Read {
 			continue
+		}
+		if cfg.verbose {
+			fmt.Printf("trying relay: %s\n", k)
 		}
 		ctx := context.WithValue(context.Background(), "url", k)
 		relay, err := nostr.RelayConnect(ctx, k)
@@ -480,39 +527,13 @@ func doSearch(cCtx *cli.Context) error {
 	defer relay.Close()
 
 	// get followers
-	follows := []string{}
-	if cfg.Updated.Add(3*time.Hour).Before(time.Now()) || len(cfg.Follows) == 0 {
-		cfg.Follows = map[string]Profile{}
-		for _, ev := range relay.QuerySync(context.Background(), nostr.Filter{Kinds: []int{nostr.KindContactList}}) {
-			follows = append(follows, ev.PubKey)
-		}
-		if cfg.verbose {
-			fmt.Printf("found %d followers\n", len(follows))
-		}
-		if len(follows) > 0 {
-			// get follower's desecriptions
-			evs := relay.QuerySync(context.Background(), nostr.Filter{
-				Kinds:   []int{nostr.KindSetMetadata},
-				Authors: follows,
-			})
-
-			for _, ev := range evs {
-				var profile Profile
-				err := json.Unmarshal([]byte(ev.Content), &profile)
-				if err == nil {
-					cfg.Follows[ev.PubKey] = profile
-				}
-			}
-		}
-
-		cfg.Updated = time.Now()
-		if err := cfg.save(cCtx.String("a")); err != nil {
-			return err
-		}
-	} else {
-		for k := range cfg.Follows {
-			follows = append(follows, k)
-		}
+	followsMap, err := cfg.GetFollows(relay, cCtx.String("a"))
+	if err != nil {
+		return err
+	}
+	var follows []string
+	for k := range followsMap {
+		follows = append(follows, k)
 	}
 
 	// get timeline
@@ -532,7 +553,7 @@ func doSearch(cCtx *cli.Context) error {
 	if j {
 		for ev := range sub.Events {
 			if extra {
-				profile, ok := cfg.Follows[ev.PubKey]
+				profile, ok := followsMap[ev.PubKey]
 				if ok {
 					eev := Event{
 						Event:   ev,
@@ -548,7 +569,7 @@ func doSearch(cCtx *cli.Context) error {
 	}
 
 	for ev := range sub.Events {
-		profile, ok := cfg.Follows[ev.PubKey]
+		profile, ok := followsMap[ev.PubKey]
 		if ok {
 			color.Set(color.FgHiRed)
 			fmt.Print(profile.Name)
@@ -580,39 +601,13 @@ func doTimeline(cCtx *cli.Context) error {
 	defer relay.Close()
 
 	// get followers
-	follows := []string{}
-	if cfg.Updated.Add(3*time.Hour).Before(time.Now()) || len(cfg.Follows) == 0 {
-		cfg.Follows = map[string]Profile{}
-		for _, ev := range relay.QuerySync(context.Background(), nostr.Filter{Kinds: []int{nostr.KindContactList}}) {
-			follows = append(follows, ev.PubKey)
-		}
-		if cfg.verbose {
-			fmt.Printf("found %d followers\n", len(follows))
-		}
-		if len(follows) > 0 {
-			// get follower's desecriptions
-			evs := relay.QuerySync(context.Background(), nostr.Filter{
-				Kinds:   []int{nostr.KindSetMetadata},
-				Authors: follows,
-			})
-
-			for _, ev := range evs {
-				var profile Profile
-				err := json.Unmarshal([]byte(ev.Content), &profile)
-				if err == nil {
-					cfg.Follows[ev.PubKey] = profile
-				}
-			}
-		}
-
-		cfg.Updated = time.Now()
-		if err := cfg.save(cCtx.String("a")); err != nil {
-			return err
-		}
-	} else {
-		for k := range cfg.Follows {
-			follows = append(follows, k)
-		}
+	followsMap, err := cfg.GetFollows(relay, cCtx.String("a"))
+	if err != nil {
+		return err
+	}
+	var follows []string
+	for k := range followsMap {
+		follows = append(follows, k)
 	}
 
 	// get timeline
@@ -632,7 +627,7 @@ func doTimeline(cCtx *cli.Context) error {
 	if j {
 		for ev := range sub.Events {
 			if extra {
-				profile, ok := cfg.Follows[ev.PubKey]
+				profile, ok := followsMap[ev.PubKey]
 				if ok {
 					eev := Event{
 						Event:   ev,
@@ -648,7 +643,7 @@ func doTimeline(cCtx *cli.Context) error {
 	}
 
 	for ev := range sub.Events {
-		profile, ok := cfg.Follows[ev.PubKey]
+		profile, ok := followsMap[ev.PubKey]
 		if ok {
 			color.Set(color.FgHiRed)
 			fmt.Print(profile.Name)
