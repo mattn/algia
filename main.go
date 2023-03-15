@@ -109,7 +109,11 @@ func (cfg *Config) GetFollows(relay *nostr.Relay, profile string) (map[string]Pr
 		cfg.Follows = map[string]Profile{}
 		follows := []string{}
 		for _, ev := range relay.QuerySync(context.Background(), nostr.Filter{Kinds: []int{nostr.KindContactList}, Authors: []string{pub}, Limit: 1}) {
-			follows = append(follows, ev.PubKey)
+			for _, tag := range ev.Tags {
+				if len(tag) >= 2 && tag[0] == "p" {
+					follows = append(follows, tag[1])
+				}
+			}
 		}
 		if cfg.verbose {
 			fmt.Printf("found %d followers\n", len(follows))
@@ -524,6 +528,64 @@ func doDelete(cCtx *cli.Context) error {
 	return nil
 }
 
+func printEvents(sub *nostr.Subscription, followsMap map[string]Profile, j, extra bool) {
+	if j {
+		if extra {
+			var events []Event
+			for ev := range sub.Events {
+				if profile, ok := followsMap[ev.PubKey]; ok {
+					events = append(events, Event{
+						Event:   ev,
+						Profile: profile,
+					})
+				}
+			}
+			for i := 0; i < len(events)/2; i++ {
+				events[i], events[len(events)-i-1] = events[len(events)-i-1], events[i]
+			}
+			for _, ev := range events {
+				json.NewEncoder(os.Stdout).Encode(ev)
+			}
+		} else {
+			var events []nostr.Event
+			for ev := range sub.Events {
+				events = append(events, *ev)
+			}
+			for i := 0; i < len(events)/2; i++ {
+				events[i], events[len(events)-i-1] = events[len(events)-i-1], events[i]
+			}
+			for _, ev := range events {
+				json.NewEncoder(os.Stdout).Encode(ev)
+			}
+		}
+		return
+	}
+
+	var events []nostr.Event
+	for ev := range sub.Events {
+		events = append(events, *ev)
+	}
+	for i := 0; i < len(events)/2; i++ {
+		events[i], events[len(events)-i-1] = events[len(events)-i-1], events[i]
+	}
+	for _, ev := range events {
+		profile, ok := followsMap[ev.PubKey]
+		if ok {
+			color.Set(color.FgHiRed)
+			fmt.Print(profile.Name)
+		} else {
+			color.Set(color.FgRed)
+			fmt.Print(ev.PubKey)
+		}
+		color.Set(color.Reset)
+		fmt.Print(": ")
+		color.Set(color.FgHiBlue)
+		fmt.Println(ev.PubKey)
+		color.Set(color.Reset)
+		fmt.Println(ev.Content)
+	}
+}
+
 func doSearch(cCtx *cli.Context) error {
 	n := cCtx.Int("n")
 	j := cCtx.Bool("json")
@@ -560,41 +622,7 @@ func doSearch(cCtx *cli.Context) error {
 		cancel()
 	}()
 
-	if j {
-		for ev := range sub.Events {
-			if extra {
-				profile, ok := followsMap[ev.PubKey]
-				if ok {
-					eev := Event{
-						Event:   ev,
-						Profile: profile,
-					}
-					json.NewEncoder(os.Stdout).Encode(eev)
-				}
-			} else {
-				json.NewEncoder(os.Stdout).Encode(ev)
-			}
-		}
-		return nil
-	}
-
-	for ev := range sub.Events {
-		profile, ok := followsMap[ev.PubKey]
-		if ok {
-			color.Set(color.FgHiRed)
-			fmt.Print(profile.Name)
-		} else {
-			color.Set(color.FgRed)
-			fmt.Print(ev.PubKey)
-		}
-		color.Set(color.Reset)
-		fmt.Print(": ")
-		color.Set(color.FgHiBlue)
-		fmt.Println(ev.PubKey)
-		color.Set(color.Reset)
-		fmt.Println(ev.Content)
-	}
-
+	printEvents(sub, followsMap, j, extra)
 	return nil
 }
 
@@ -634,41 +662,7 @@ func doTimeline(cCtx *cli.Context) error {
 		cancel()
 	}()
 
-	if j {
-		for ev := range sub.Events {
-			if extra {
-				profile, ok := followsMap[ev.PubKey]
-				if ok {
-					eev := Event{
-						Event:   ev,
-						Profile: profile,
-					}
-					json.NewEncoder(os.Stdout).Encode(eev)
-				}
-			} else {
-				json.NewEncoder(os.Stdout).Encode(ev)
-			}
-		}
-		return nil
-	}
-
-	for ev := range sub.Events {
-		profile, ok := followsMap[ev.PubKey]
-		if ok {
-			color.Set(color.FgHiRed)
-			fmt.Print(profile.Name)
-		} else {
-			color.Set(color.FgRed)
-			fmt.Print(ev.PubKey)
-		}
-		color.Set(color.Reset)
-		fmt.Print(": ")
-		color.Set(color.FgHiBlue)
-		fmt.Println(ev.PubKey)
-		color.Set(color.Reset)
-		fmt.Println(ev.Content)
-	}
-
+	printEvents(sub, followsMap, j, extra)
 	return nil
 }
 
