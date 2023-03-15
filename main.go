@@ -262,7 +262,9 @@ func doPost(cCtx *cli.Context) error {
 
 	ev.CreatedAt = time.Now()
 	ev.Kind = nostr.KindTextNote
-	ev.Sign(sk)
+	if err := ev.Sign(sk); err != nil {
+		return err
+	}
 
 	var success atomic.Int64
 	cfg.Do(Relay{Write: true}, func(relay *nostr.Relay) {
@@ -329,7 +331,9 @@ func doReply(cCtx *cli.Context) error {
 		} else {
 			ev.Tags = ev.Tags.AppendUnique(nostr.Tag{"e", id, relay.URL, "mention"})
 		}
-		ev.Sign(sk)
+		if err := ev.Sign(sk); err != nil {
+			return
+		}
 		status := relay.Publish(context.Background(), ev)
 		if cfg.verbose {
 			fmt.Fprintln(os.Stderr, relay.URL, status)
@@ -389,7 +393,9 @@ func doRepost(cCtx *cli.Context) error {
 				ev.Tags = ev.Tags.AppendUnique(nostr.Tag{"p", tmp.ID})
 			}
 			first.Store(false)
-			ev.Sign(sk)
+			if err := ev.Sign(sk); err != nil {
+				return
+			}
 		}
 		status := relay.Publish(context.Background(), ev)
 		if cfg.verbose {
@@ -450,7 +456,9 @@ func doLike(cCtx *cli.Context) error {
 				ev.Tags = ev.Tags.AppendUnique(nostr.Tag{"p", tmp.ID})
 			}
 			first.Store(false)
-			ev.Sign(sk)
+			if err := ev.Sign(sk); err != nil {
+				return
+			}
 		}
 		status := relay.Publish(context.Background(), ev)
 		if cfg.verbose {
@@ -496,7 +504,9 @@ func doDelete(cCtx *cli.Context) error {
 	ev.CreatedAt = time.Now()
 	ev.Kind = nostr.KindDeletion
 	ev.Content = "+"
-	ev.Sign(sk)
+	if err := ev.Sign(sk); err != nil {
+		return err
+	}
 
 	var success atomic.Int64
 	cfg.Do(Relay{Write: true}, func(relay *nostr.Relay) {
