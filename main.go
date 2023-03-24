@@ -147,7 +147,7 @@ func (cfg *Config) FindRelay(r Relay) *nostr.Relay {
 		if r.Write && !v.Write {
 			continue
 		}
-		if r.Search && !v.Search {
+		if !cfg.tempRelay && r.Search && !v.Search {
 			continue
 		}
 		if !r.Write && !v.Read {
@@ -272,11 +272,11 @@ func doPost(cCtx *cli.Context) error {
 
 	var success atomic.Int64
 	cfg.Do(Relay{Write: true}, func(relay *nostr.Relay) {
-		status := relay.Publish(context.Background(), ev)
+		status, err := relay.Publish(context.Background(), ev)
 		if cfg.verbose {
-			fmt.Fprintln(os.Stderr, relay.URL, status)
+			fmt.Fprintln(os.Stderr, relay.URL, status, err)
 		}
-		if status != nostr.PublishStatusFailed {
+		if err == nil && status != nostr.PublishStatusFailed {
 			success.Add(1)
 		}
 	})
@@ -338,11 +338,11 @@ func doReply(cCtx *cli.Context) error {
 		if err := ev.Sign(sk); err != nil {
 			return
 		}
-		status := relay.Publish(context.Background(), ev)
+		status, err := relay.Publish(context.Background(), ev)
 		if cfg.verbose {
-			fmt.Fprintln(os.Stderr, relay.URL, status)
+			fmt.Fprintln(os.Stderr, relay.URL, status, err)
 		}
-		if status != nostr.PublishStatusFailed {
+		if err == nil && status != nostr.PublishStatusFailed {
 			success.Add(1)
 		}
 	})
@@ -401,11 +401,11 @@ func doRepost(cCtx *cli.Context) error {
 				return
 			}
 		}
-		status := relay.Publish(context.Background(), ev)
+		status, err := relay.Publish(context.Background(), ev)
 		if cfg.verbose {
-			fmt.Fprintln(os.Stderr, relay.URL, status)
+			fmt.Fprintln(os.Stderr, relay.URL, status, err)
 		}
-		if status != nostr.PublishStatusFailed {
+		if err == nil && status != nostr.PublishStatusFailed {
 			success.Add(1)
 		}
 	})
@@ -464,11 +464,11 @@ func doLike(cCtx *cli.Context) error {
 				return
 			}
 		}
-		status := relay.Publish(context.Background(), ev)
+		status, err := relay.Publish(context.Background(), ev)
 		if cfg.verbose {
-			fmt.Fprintln(os.Stderr, relay.URL, status)
+			fmt.Fprintln(os.Stderr, relay.URL, status, err)
 		}
-		if status != nostr.PublishStatusFailed {
+		if err == nil && status != nostr.PublishStatusFailed {
 			success.Add(1)
 		}
 	})
@@ -514,11 +514,11 @@ func doDelete(cCtx *cli.Context) error {
 
 	var success atomic.Int64
 	cfg.Do(Relay{Write: true}, func(relay *nostr.Relay) {
-		status := relay.Publish(context.Background(), ev)
+		status, err := relay.Publish(context.Background(), ev)
 		if cfg.verbose {
-			fmt.Fprintln(os.Stderr, relay.URL, status)
+			fmt.Fprintln(os.Stderr, relay.URL, status, err)
 		}
-		if status != nostr.PublishStatusFailed {
+		if err == nil && status != nostr.PublishStatusFailed {
 			success.Add(1)
 		}
 	})
