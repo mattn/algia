@@ -264,7 +264,7 @@ func doPost(cCtx *cli.Context) error {
 		ev.Tags = ev.Tags.AppendUnique(nostr.Tag{"content-warning", sensitive})
 	}
 
-	ev.CreatedAt = time.Now()
+	ev.CreatedAt = time.Now() //.Add(5 * time.Hour)
 	ev.Kind = nostr.KindTextNote
 	if err := ev.Sign(sk); err != nil {
 		return err
@@ -313,7 +313,7 @@ func doReply(cCtx *cli.Context) error {
 	}
 
 	if _, tmp, err := nip19.Decode(id); err == nil {
-		id = tmp.(string)
+		id = tmp.(nostr.EventPointer).ID
 	}
 
 	ev.CreatedAt = time.Now()
@@ -374,7 +374,7 @@ func doRepost(cCtx *cli.Context) error {
 	}
 
 	if _, tmp, err := nip19.Decode(id); err == nil {
-		ev.Tags = ev.Tags.AppendUnique(nostr.Tag{"e", tmp.(string)})
+		ev.Tags = ev.Tags.AppendUnique(nostr.Tag{"e", tmp.(nostr.EventPointer).ID})
 	} else {
 		ev.Tags = ev.Tags.AppendUnique(nostr.Tag{"e", id})
 	}
@@ -437,7 +437,7 @@ func doLike(cCtx *cli.Context) error {
 	}
 
 	if _, tmp, err := nip19.Decode(id); err == nil {
-		ev.Tags = ev.Tags.AppendUnique(nostr.Tag{"e", tmp.(string)})
+		ev.Tags = ev.Tags.AppendUnique(nostr.Tag{"e", tmp.(nostr.EventPointer).ID})
 	} else {
 		ev.Tags = ev.Tags.AppendUnique(nostr.Tag{"e", id})
 	}
@@ -500,7 +500,7 @@ func doDelete(cCtx *cli.Context) error {
 	}
 
 	if _, tmp, err := nip19.Decode(id); err == nil {
-		ev.Tags = ev.Tags.AppendUnique(nostr.Tag{"e", tmp.(string)})
+		ev.Tags = ev.Tags.AppendUnique(nostr.Tag{"e", tmp.(nostr.EventPointer).ID})
 	} else {
 		ev.Tags = ev.Tags.AppendUnique(nostr.Tag{"e", id})
 	}
@@ -655,6 +655,7 @@ func doTimeline(cCtx *cli.Context) error {
 		Authors: follows,
 		Limit:   n,
 	})
+
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	sub := relay.Subscribe(ctx, filters)
 	go func() {
