@@ -6,8 +6,10 @@ import (
 	"errors"
 	"fmt"
 	"io/ioutil"
+	"log"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -17,6 +19,7 @@ import (
 
 	"github.com/fatih/color"
 	"github.com/nbd-wtf/go-nostr"
+	"github.com/nbd-wtf/go-nostr/nip04"
 	"github.com/nbd-wtf/go-nostr/nip19"
 )
 
@@ -39,6 +42,7 @@ type Config struct {
 	Updated    time.Time          `json:"updated"`
 	verbose    bool
 	tempRelay  bool
+	sk         string
 }
 
 type Event struct {
@@ -222,6 +226,142 @@ func (cfg *Config) save(profile string) error {
 	return ioutil.WriteFile(fp, b, 0644)
 }
 
+func (cfg *Config) Decode(ev *nostr.Event) error {
+	var sk string
+	var pub string
+	if _, s, err := nip19.Decode(cfg.PrivateKey); err != nil {
+		return err
+	} else {
+		sk = s.(string)
+		if pub, err = nostr.GetPublicKey(s.(string)); err != nil {
+			return err
+		}
+	}
+	sp := ev.Tags.GetFirst([]string{"p"}).Value()
+	if sp != pub {
+		if ev.PubKey != pub {
+			return errors.New("is not author")
+		}
+	} else {
+		if sp == ev.PubKey {
+			return errors.New("is not author")
+		}
+		sp = ev.PubKey
+	}
+	ss, err := nip04.ComputeSharedSecret(sp, sk)
+	if err != nil {
+		return err
+	}
+	content, err := nip04.Decrypt(ev.Content, ss)
+	if err != nil {
+		return err
+	}
+	ev.Content = content
+	return nil
+}
+
+func (cfg *Config) PrintEvents(evs []*nostr.Event, followsMap map[string]Profile, j, extra bool) {
+	if j {
+		if extra {
+			var events []Event
+			for _, ev := range evs {
+				if profile, ok := followsMap[ev.PubKey]; ok {
+					events = append(events, Event{
+						Event:   ev,
+						Profile: profile,
+					})
+				}
+			}
+			for _, ev := range events {
+				json.NewEncoder(os.Stdout).Encode(ev)
+			}
+		} else {
+			for _, ev := range evs {
+				json.NewEncoder(os.Stdout).Encode(ev)
+			}
+		}
+		return
+	}
+
+	for _, ev := range evs {
+		profile, ok := followsMap[ev.PubKey]
+		if ok {
+			color.Set(color.FgHiRed)
+			fmt.Print(profile.Name)
+		} else {
+			color.Set(color.FgRed)
+			fmt.Print(ev.PubKey)
+		}
+		color.Set(color.Reset)
+		fmt.Print(": ")
+		color.Set(color.FgHiBlue)
+		fmt.Println(ev.PubKey)
+		color.Set(color.Reset)
+		fmt.Println(ev.Content)
+	}
+}
+
+func (cfg *Config) Events(filter nostr.Filter, pub string) []*nostr.Event {
+	var m sync.Map
+	if false {
+		cfg.Do(Relay{Read: true}, func(relay *nostr.Relay) {
+			evs := relay.QuerySync(context.Background(), filter)
+			for _, ev := range evs {
+				if _, ok := m.Load(ev.ID); !ok {
+					if ev.Kind == nostr.KindEncryptedDirectMessage {
+						if err := cfg.Decode(ev); err != nil {
+							log.Println(err)
+							continue
+						}
+					}
+					m.LoadOrStore(ev.ID, ev)
+				}
+			}
+		})
+	}
+	for k := range cfg.Relays {
+		relay, err := nostr.RelayConnect(context.Background(), k)
+		if err != nil {
+			continue
+		}
+		evs := relay.QuerySync(context.Background(), filter)
+		for _, ev := range evs {
+			if ev.Kind == nostr.KindEncryptedDirectMessage {
+				if err := cfg.Decode(ev); err != nil {
+					continue
+				}
+			}
+			m.LoadOrStore(ev.ID, ev)
+		}
+	}
+
+	keys := []string{}
+	m.Range(func(k, v any) bool {
+		keys = append(keys, k.(string))
+		return true
+	})
+	sort.Slice(keys, func(i, j int) bool {
+		lhs, ok := m.Load(keys[i])
+		if !ok {
+			return false
+		}
+		rhs, ok := m.Load(keys[j])
+		if !ok {
+			return false
+		}
+		return lhs.(*nostr.Event).CreatedAt.Before(rhs.(*nostr.Event).CreatedAt)
+	})
+	var evs []*nostr.Event
+	for _, key := range keys {
+		vv, ok := m.Load(key)
+		if !ok {
+			continue
+		}
+		evs = append(evs, vv.(*nostr.Event))
+	}
+	return evs
+}
+
 func doPost(cCtx *cli.Context) error {
 	stdin := cCtx.Bool("stdin")
 	if !stdin && cCtx.Args().Len() == 0 {
@@ -264,7 +404,7 @@ func doPost(cCtx *cli.Context) error {
 		ev.Tags = ev.Tags.AppendUnique(nostr.Tag{"content-warning", sensitive})
 	}
 
-	ev.CreatedAt = time.Now() //.Add(5 * time.Hour)
+	ev.CreatedAt = time.Now()
 	ev.Kind = nostr.KindTextNote
 	if err := ev.Sign(sk); err != nil {
 		return err
@@ -313,7 +453,11 @@ func doReply(cCtx *cli.Context) error {
 	}
 
 	if _, tmp, err := nip19.Decode(id); err == nil {
-		id = tmp.(nostr.EventPointer).ID
+		if s, ok := tmp.(string); ok {
+			id = s
+		} else if s, ok := tmp.(nostr.EventPointer); ok {
+			id = s.ID
+		}
 	}
 
 	ev.CreatedAt = time.Now()
@@ -374,7 +518,11 @@ func doRepost(cCtx *cli.Context) error {
 	}
 
 	if _, tmp, err := nip19.Decode(id); err == nil {
-		ev.Tags = ev.Tags.AppendUnique(nostr.Tag{"e", tmp.(nostr.EventPointer).ID})
+		if s, ok := tmp.(string); ok {
+			ev.Tags = ev.Tags.AppendUnique(nostr.Tag{"e", s})
+		} else if s, ok := tmp.(nostr.EventPointer); ok {
+			ev.Tags = ev.Tags.AppendUnique(nostr.Tag{"e", s.ID})
+		}
 	} else {
 		ev.Tags = ev.Tags.AppendUnique(nostr.Tag{"e", id})
 	}
@@ -437,7 +585,11 @@ func doLike(cCtx *cli.Context) error {
 	}
 
 	if _, tmp, err := nip19.Decode(id); err == nil {
-		ev.Tags = ev.Tags.AppendUnique(nostr.Tag{"e", tmp.(nostr.EventPointer).ID})
+		if s, ok := tmp.(string); ok {
+			ev.Tags = ev.Tags.AppendUnique(nostr.Tag{"e", s})
+		} else if s, ok := tmp.(nostr.EventPointer); ok {
+			ev.Tags = ev.Tags.AppendUnique(nostr.Tag{"e", s.ID})
+		}
 	} else {
 		ev.Tags = ev.Tags.AppendUnique(nostr.Tag{"e", id})
 	}
@@ -500,14 +652,17 @@ func doDelete(cCtx *cli.Context) error {
 	}
 
 	if _, tmp, err := nip19.Decode(id); err == nil {
-		ev.Tags = ev.Tags.AppendUnique(nostr.Tag{"e", tmp.(nostr.EventPointer).ID})
+		if s, ok := tmp.(string); ok {
+			ev.Tags = ev.Tags.AppendUnique(nostr.Tag{"e", s})
+		} else if s, ok := tmp.(nostr.EventPointer); ok {
+			ev.Tags = ev.Tags.AppendUnique(nostr.Tag{"e", s.ID})
+		}
 	} else {
 		ev.Tags = ev.Tags.AppendUnique(nostr.Tag{"e", id})
 	}
 
 	ev.CreatedAt = time.Now()
 	ev.Kind = nostr.KindDeletion
-	ev.Content = "+"
 	if err := ev.Sign(sk); err != nil {
 		return err
 	}
@@ -526,64 +681,6 @@ func doDelete(cCtx *cli.Context) error {
 		return errors.New("cannot delete")
 	}
 	return nil
-}
-
-func printEvents(sub *nostr.Subscription, followsMap map[string]Profile, j, extra bool) {
-	if j {
-		if extra {
-			var events []Event
-			for ev := range sub.Events {
-				if profile, ok := followsMap[ev.PubKey]; ok {
-					events = append(events, Event{
-						Event:   ev,
-						Profile: profile,
-					})
-				}
-			}
-			for i := 0; i < len(events)/2; i++ {
-				events[i], events[len(events)-i-1] = events[len(events)-i-1], events[i]
-			}
-			for _, ev := range events {
-				json.NewEncoder(os.Stdout).Encode(ev)
-			}
-		} else {
-			var events []nostr.Event
-			for ev := range sub.Events {
-				events = append(events, *ev)
-			}
-			for i := 0; i < len(events)/2; i++ {
-				events[i], events[len(events)-i-1] = events[len(events)-i-1], events[i]
-			}
-			for _, ev := range events {
-				json.NewEncoder(os.Stdout).Encode(ev)
-			}
-		}
-		return
-	}
-
-	var events []nostr.Event
-	for ev := range sub.Events {
-		events = append(events, *ev)
-	}
-	for i := 0; i < len(events)/2; i++ {
-		events[i], events[len(events)-i-1] = events[len(events)-i-1], events[i]
-	}
-	for _, ev := range events {
-		profile, ok := followsMap[ev.PubKey]
-		if ok {
-			color.Set(color.FgHiRed)
-			fmt.Print(profile.Name)
-		} else {
-			color.Set(color.FgRed)
-			fmt.Print(ev.PubKey)
-		}
-		color.Set(color.Reset)
-		fmt.Print(": ")
-		color.Set(color.FgHiBlue)
-		fmt.Println(ev.PubKey)
-		color.Set(color.Reset)
-		fmt.Println(ev.Content)
-	}
 }
 
 func doSearch(cCtx *cli.Context) error {
@@ -609,20 +706,14 @@ func doSearch(cCtx *cli.Context) error {
 	}
 
 	// get timeline
-	filters := []nostr.Filter{}
-	filters = append(filters, nostr.Filter{
+	filter := nostr.Filter{
 		Kinds:  []int{nostr.KindTextNote},
 		Search: strings.Join(cCtx.Args().Slice(), " "),
 		Limit:  n,
-	})
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	sub := relay.Subscribe(ctx, filters)
-	go func() {
-		<-sub.EndOfStoredEvents
-		cancel()
-	}()
+	}
 
-	printEvents(sub, followsMap, j, extra)
+	evs := cfg.Events(filter, "")
+	cfg.PrintEvents(evs, followsMap, j, extra)
 	return nil
 }
 
@@ -649,21 +740,133 @@ func doTimeline(cCtx *cli.Context) error {
 	}
 
 	// get timeline
-	filters := []nostr.Filter{}
-	filters = append(filters, nostr.Filter{
+	filter := nostr.Filter{
 		Kinds:   []int{nostr.KindTextNote},
 		Authors: follows,
 		Limit:   n,
+	}
+
+	evs := cfg.Events(filter, "")
+	cfg.PrintEvents(evs, followsMap, j, extra)
+	return nil
+}
+
+func doDMTimeline(cCtx *cli.Context) error {
+	u := cCtx.String("u")
+	n := cCtx.Int("n")
+	j := cCtx.Bool("json")
+	extra := cCtx.Bool("extra")
+
+	cfg := cCtx.App.Metadata["config"].(*Config)
+	relay := cfg.FindRelay(Relay{Read: true})
+	if relay == nil {
+		return errors.New("cannot connect relays")
+	}
+	defer relay.Close()
+
+	var pub string
+	if _, s, err := nip19.Decode(u); err != nil {
+		return err
+	} else {
+		pub = s.(string)
+	}
+	// get followers
+	followsMap, err := cfg.GetFollows(relay, cCtx.String("a"))
+	if err != nil {
+		return err
+	}
+
+	// get timeline
+	filter := nostr.Filter{
+		Kinds: []int{nostr.KindEncryptedDirectMessage},
+		//Authors: []string{pub},
+		Limit: n,
+	}
+
+	evs := cfg.Events(filter, pub)
+	cfg.PrintEvents(evs, followsMap, j, extra)
+	return nil
+}
+
+func doDMPost(cCtx *cli.Context) error {
+	u := cCtx.String("u")
+	stdin := cCtx.Bool("stdin")
+	if !stdin && cCtx.Args().Len() == 0 {
+		return cli.ShowSubcommandHelp(cCtx)
+	}
+	sensitive := cCtx.String("sensitive")
+
+	cfg := cCtx.App.Metadata["config"].(*Config)
+
+	var pub string
+	if _, s, err := nip19.Decode(u); err != nil {
+		return err
+	} else {
+		pub = s.(string)
+	}
+
+	var sk string
+	if _, s, err := nip19.Decode(cfg.PrivateKey); err != nil {
+		return err
+	} else {
+		sk = s.(string)
+	}
+	ev := nostr.Event{}
+	if npub, err := nostr.GetPublicKey(sk); err == nil {
+		if _, err := nip19.EncodePublicKey(npub); err != nil {
+			return err
+		}
+		ev.PubKey = npub
+	} else {
+		return err
+	}
+
+	if stdin {
+		b, err := ioutil.ReadAll(os.Stdin)
+		if err != nil {
+			return err
+		}
+		ev.Content = string(b)
+	} else {
+		ev.Content = strings.Join(cCtx.Args().Slice(), "\n")
+	}
+	if strings.TrimSpace(ev.Content) == "" {
+		return errors.New("content is empty")
+	}
+
+	if sensitive != "" {
+		ev.Tags = ev.Tags.AppendUnique(nostr.Tag{"content-warning", sensitive})
+	}
+
+	ev.Tags = ev.Tags.AppendUnique(nostr.Tag{"p", pub})
+	ev.CreatedAt = time.Now()
+	ev.Kind = nostr.KindEncryptedDirectMessage
+
+	ss, err := nip04.ComputeSharedSecret(ev.PubKey, sk)
+	if err != nil {
+		return err
+	}
+	ev.Content, err = nip04.Encrypt(ev.Content, ss)
+	if err != nil {
+		return err
+	}
+	if err := ev.Sign(sk); err != nil {
+		return err
+	}
+
+	var success atomic.Int64
+	cfg.Do(Relay{Write: true}, func(relay *nostr.Relay) {
+		status, err := relay.Publish(context.Background(), ev)
+		if cfg.verbose {
+			fmt.Fprintln(os.Stderr, relay.URL, status, err)
+		}
+		if err == nil && status != nostr.PublishStatusFailed {
+			success.Add(1)
+		}
 	})
-
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	sub := relay.Subscribe(ctx, filters)
-	go func() {
-		<-sub.EndOfStoredEvents
-		cancel()
-	}()
-
-	printEvents(sub, followsMap, j, extra)
+	if success.Load() == 0 {
+		return errors.New("cannot post")
+	}
 	return nil
 }
 
@@ -759,6 +962,29 @@ func main() {
 				UsageText: "algia search [words]",
 				HelpName:  "search",
 				Action:    doSearch,
+			},
+			{
+				Name:  "dm-timeline",
+				Usage: "show DM timeline",
+				Flags: []cli.Flag{
+					&cli.StringFlag{Name: "u", Value: "", Usage: "DM user", Required: true},
+					&cli.IntFlag{Name: "n", Value: 30, Usage: "number of items"},
+					&cli.BoolFlag{Name: "json", Usage: "output JSON"},
+					&cli.BoolFlag{Name: "extra", Usage: "extra JSON"},
+				},
+				Action: doDMTimeline,
+			},
+			{
+				Name: "dm-post",
+				Flags: []cli.Flag{
+					&cli.StringFlag{Name: "u", Value: "", Usage: "DM user", Required: true},
+					&cli.BoolFlag{Name: "stdin"},
+				},
+				Usage:     "post new note",
+				UsageText: "algia post [note text]",
+				HelpName:  "post",
+				ArgsUsage: "[note text]",
+				Action:    doDMPost,
 			},
 		},
 		Before: func(cCtx *cli.Context) error {
