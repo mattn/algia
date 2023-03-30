@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"io/ioutil"
-	"log"
 	"os"
 	"path/filepath"
 	"sort"
@@ -237,7 +236,11 @@ func (cfg *Config) Decode(ev *nostr.Event) error {
 			return err
 		}
 	}
-	sp := ev.Tags.GetFirst([]string{"p"}).Value()
+	tag := ev.Tags.GetFirst([]string{"p"})
+	if tag == nil {
+		return errors.New("is not author")
+	}
+	sp := tag.Value()
 	if sp != pub {
 		if ev.PubKey != pub {
 			return errors.New("is not author")
@@ -301,39 +304,31 @@ func (cfg *Config) PrintEvents(evs []*nostr.Event, followsMap map[string]Profile
 	}
 }
 
-func (cfg *Config) Events(filter nostr.Filter, pub string) []*nostr.Event {
+func (cfg *Config) Events(filter nostr.Filter) []*nostr.Event {
 	var m sync.Map
-	if false {
-		cfg.Do(Relay{Read: true}, func(relay *nostr.Relay) {
-			evs := relay.QuerySync(context.Background(), filter)
-			for _, ev := range evs {
-				if _, ok := m.Load(ev.ID); !ok {
-					if ev.Kind == nostr.KindEncryptedDirectMessage {
-						if err := cfg.Decode(ev); err != nil {
-							log.Println(err)
-							continue
-						}
-					}
-					m.LoadOrStore(ev.ID, ev)
-				}
-			}
-		})
-	}
-	for k := range cfg.Relays {
-		relay, err := nostr.RelayConnect(context.Background(), k)
-		if err != nil {
-			continue
-		}
+	cfg.Do(Relay{Read: true}, func(relay *nostr.Relay) {
 		evs := relay.QuerySync(context.Background(), filter)
 		for _, ev := range evs {
-			if ev.Kind == nostr.KindEncryptedDirectMessage {
-				if err := cfg.Decode(ev); err != nil {
-					continue
+			if _, ok := m.Load(ev.ID); !ok {
+				if ev.Kind == nostr.KindEncryptedDirectMessage {
+					found := false
+					for _, k := range filter.Authors {
+						if k == ev.PubKey {
+							found = true
+							break
+						}
+					}
+					if !found {
+						continue
+					}
+					if err := cfg.Decode(ev); err != nil {
+						continue
+					}
 				}
+				m.LoadOrStore(ev.ID, ev)
 			}
-			m.LoadOrStore(ev.ID, ev)
 		}
-	}
+	})
 
 	keys := []string{}
 	m.Range(func(k, v any) bool {
@@ -712,7 +707,7 @@ func doSearch(cCtx *cli.Context) error {
 		Limit:  n,
 	}
 
-	evs := cfg.Events(filter, "")
+	evs := cfg.Events(filter)
 	cfg.PrintEvents(evs, followsMap, j, extra)
 	return nil
 }
@@ -746,14 +741,88 @@ func doTimeline(cCtx *cli.Context) error {
 		Limit:   n,
 	}
 
-	evs := cfg.Events(filter, "")
+	evs := cfg.Events(filter)
 	cfg.PrintEvents(evs, followsMap, j, extra)
+	return nil
+}
+
+func doDMList(cCtx *cli.Context) error {
+	j := cCtx.Bool("json")
+
+	cfg := cCtx.App.Metadata["config"].(*Config)
+	relay := cfg.FindRelay(Relay{Read: true})
+	if relay == nil {
+		return errors.New("cannot connect relays")
+	}
+	defer relay.Close()
+
+	// get followers
+	followsMap, err := cfg.GetFollows(relay, cCtx.String("a"))
+	if err != nil {
+		return err
+	}
+
+	var sk string
+	var npub string
+	if _, s, err := nip19.Decode(cfg.PrivateKey); err != nil {
+		return err
+	} else {
+		sk = s.(string)
+	}
+	if npub, err = nostr.GetPublicKey(sk); err != nil {
+		return err
+	}
+
+	// get timeline
+	filter := nostr.Filter{
+		Kinds:   []int{nostr.KindEncryptedDirectMessage},
+		Authors: []string{npub},
+		//Tags:    nostr.TagMap{"p": []string{npub}},
+		Limit: 9999,
+	}
+
+	evs := cfg.Events(filter)
+	type entry struct {
+		name   string
+		pubkey string
+	}
+	users := []entry{}
+	m := map[string]struct{}{}
+	for _, ev := range evs {
+		p := ev.Tags.GetFirst([]string{"p"}).Value()
+		if _, ok := m[p]; ok {
+			continue
+		}
+		if profile, ok := followsMap[p]; ok {
+			m[p] = struct{}{}
+			p, _ = nip19.EncodePublicKey(p)
+			users = append(users, entry{
+				name:   profile.DisplayName,
+				pubkey: p,
+			})
+		}
+	}
+	if j {
+		for _, user := range users {
+			json.NewEncoder(os.Stdout).Encode(user)
+		}
+		return nil
+	}
+
+	for _, user := range users {
+		color.Set(color.FgHiRed)
+		fmt.Print(user.name)
+		color.Set(color.Reset)
+		fmt.Print(": ")
+		color.Set(color.FgHiBlue)
+		fmt.Println(user.pubkey)
+		color.Set(color.Reset)
+	}
 	return nil
 }
 
 func doDMTimeline(cCtx *cli.Context) error {
 	u := cCtx.String("u")
-	n := cCtx.Int("n")
 	j := cCtx.Bool("json")
 	extra := cCtx.Bool("extra")
 
@@ -763,6 +832,18 @@ func doDMTimeline(cCtx *cli.Context) error {
 		return errors.New("cannot connect relays")
 	}
 	defer relay.Close()
+
+	var sk string
+	var npub string
+	var err error
+	if _, s, err := nip19.Decode(cfg.PrivateKey); err != nil {
+		return err
+	} else {
+		sk = s.(string)
+	}
+	if npub, err = nostr.GetPublicKey(sk); err != nil {
+		return err
+	}
 
 	var pub string
 	if _, s, err := nip19.Decode(u); err != nil {
@@ -778,12 +859,13 @@ func doDMTimeline(cCtx *cli.Context) error {
 
 	// get timeline
 	filter := nostr.Filter{
-		Kinds: []int{nostr.KindEncryptedDirectMessage},
-		//Authors: []string{pub},
-		Limit: n,
+		Kinds:   []int{nostr.KindEncryptedDirectMessage},
+		Authors: []string{npub, pub},
+		Tags:    nostr.TagMap{"p": []string{npub, pub}},
+		Limit:   9999,
 	}
 
-	evs := cfg.Events(filter, pub)
+	evs := cfg.Events(filter)
 	cfg.PrintEvents(evs, followsMap, j, extra)
 	return nil
 }
@@ -964,11 +1046,18 @@ func main() {
 				Action:    doSearch,
 			},
 			{
+				Name:  "dm-list",
+				Usage: "show DM list",
+				Flags: []cli.Flag{
+					&cli.BoolFlag{Name: "json", Usage: "output JSON"},
+				},
+				Action: doDMList,
+			},
+			{
 				Name:  "dm-timeline",
 				Usage: "show DM timeline",
 				Flags: []cli.Flag{
 					&cli.StringFlag{Name: "u", Value: "", Usage: "DM user", Required: true},
-					&cli.IntFlag{Name: "n", Value: 30, Usage: "number of items"},
 					&cli.BoolFlag{Name: "json", Usage: "output JSON"},
 					&cli.BoolFlag{Name: "extra", Usage: "extra JSON"},
 				},
@@ -979,6 +1068,7 @@ func main() {
 				Flags: []cli.Flag{
 					&cli.StringFlag{Name: "u", Value: "", Usage: "DM user", Required: true},
 					&cli.BoolFlag{Name: "stdin"},
+					&cli.StringFlag{Name: "sensitive"},
 				},
 				Usage:     "post new note",
 				UsageText: "algia post [note text]",
