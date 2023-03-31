@@ -370,6 +370,11 @@ func (cfg *Config) Events(filter nostr.Filter) []*nostr.Event {
 	return evs
 }
 
+func doVersion(cCtx *cli.Context) error {
+	fmt.Println(version)
+	return nil
+}
+
 func main() {
 	app := &cli.App{
 		Usage:       "A cli application for nostr",
@@ -502,6 +507,13 @@ func main() {
 				UsageText: "algia powa",
 				HelpName:  "powa",
 				Action:    doPowa,
+			},
+			{
+				Name:      "version",
+				Usage:     "show version",
+				UsageText: "algia version",
+				HelpName:  "version",
+				Action:    doVersion,
 			},
 		},
 		Before: func(cCtx *cli.Context) error {
