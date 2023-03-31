@@ -97,6 +97,7 @@ func loadConfig(profile string) (*Config, error) {
 }
 
 func (cfg *Config) GetFollows(relay *nostr.Relay, profile string) (map[string]Profile, error) {
+	var mu sync.Mutex
 	var pub string
 	if _, s, err := nip19.Decode(cfg.PrivateKey); err != nil {
 		return nil, err
@@ -108,32 +109,45 @@ func (cfg *Config) GetFollows(relay *nostr.Relay, profile string) (map[string]Pr
 
 	// get followers
 	if cfg.Updated.Add(3*time.Hour).Before(time.Now()) || len(cfg.Follows) == 0 {
+		mu.Lock()
 		cfg.Follows = map[string]Profile{}
-		follows := []string{}
-		for _, ev := range relay.QuerySync(context.Background(), nostr.Filter{Kinds: []int{nostr.KindContactList}, Authors: []string{pub}, Limit: 1}) {
-			for _, tag := range ev.Tags {
-				if len(tag) >= 2 && tag[0] == "p" {
-					follows = append(follows, tag[1])
-				}
-			}
-		}
-		if cfg.verbose {
-			fmt.Printf("found %d followers\n", len(follows))
-		}
-		if len(follows) > 0 {
-			// get follower's desecriptions
-			evs := relay.QuerySync(context.Background(), nostr.Filter{
-				Kinds:   []int{nostr.KindSetMetadata},
-				Authors: follows,
-			})
+		mu.Unlock()
+		m := map[string]struct{}{}
 
-			for _, ev := range evs {
-				var profile Profile
-				err := json.Unmarshal([]byte(ev.Content), &profile)
-				if err == nil {
-					cfg.Follows[ev.PubKey] = profile
+		cfg.Do(Relay{Read: true}, func(relay *nostr.Relay) {
+			for _, ev := range relay.QuerySync(context.Background(), nostr.Filter{Kinds: []int{nostr.KindContactList}, Authors: []string{pub}, Limit: 1}) {
+				for _, tag := range ev.Tags {
+					if len(tag) >= 2 && tag[0] == "p" {
+						m[tag[1]] = struct{}{}
+					}
 				}
 			}
+		})
+		if cfg.verbose {
+			fmt.Printf("found %d followers\n", len(m))
+		}
+		if len(m) > 0 {
+			follows := []string{}
+			for k := range m {
+				follows = append(follows, k)
+			}
+
+			// get follower's desecriptions
+			cfg.Do(Relay{Read: true}, func(relay *nostr.Relay) {
+				evs := relay.QuerySync(context.Background(), nostr.Filter{
+					Kinds:   []int{nostr.KindSetMetadata},
+					Authors: follows,
+				})
+				for _, ev := range evs {
+					var profile Profile
+					err := json.Unmarshal([]byte(ev.Content), &profile)
+					if err == nil {
+						mu.Lock()
+						cfg.Follows[ev.PubKey] = profile
+						mu.Unlock()
+					}
+				}
+			})
 		}
 
 		cfg.Updated = time.Now()
@@ -380,6 +394,7 @@ func main() {
 				Name:    "post",
 				Aliases: []string{"n"},
 				Flags: []cli.Flag{
+					&cli.StringSliceFlag{Name: "u", Usage: "users"},
 					&cli.BoolFlag{Name: "stdin"},
 					&cli.StringFlag{Name: "sensitive"},
 				},

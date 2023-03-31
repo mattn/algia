@@ -50,8 +50,7 @@ func doDMList(cCtx *cli.Context) error {
 	filter := nostr.Filter{
 		Kinds:   []int{nostr.KindEncryptedDirectMessage},
 		Authors: []string{npub},
-		//Tags:    nostr.TagMap{"p": []string{npub}},
-		Limit: 9999,
+		Limit:   9999,
 	}
 
 	evs := cfg.Events(filter)
@@ -263,11 +262,17 @@ func doPost(cCtx *cli.Context) error {
 		return errors.New("content is empty")
 	}
 
+	for i, u := range cCtx.StringSlice("u") {
+		ev.Content = fmt.Sprintf("#[%d] ", i) + ev.Content
+		ev.Tags = ev.Tags.AppendUnique(nostr.Tag{"p", u, "", "reply"})
+	}
+
 	if sensitive != "" {
 		ev.Tags = ev.Tags.AppendUnique(nostr.Tag{"content-warning", sensitive})
 	}
 
 	ev.CreatedAt = time.Now()
+	ev.CreatedAt = time.Date(1970, 1, 1, 0, 0, 0, 0, time.UTC)
 	ev.Kind = nostr.KindTextNote
 	if err := ev.Sign(sk); err != nil {
 		return err
