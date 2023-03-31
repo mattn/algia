@@ -372,6 +372,7 @@ func (cfg *Config) Events(filter nostr.Filter) []*nostr.Event {
 
 func main() {
 	app := &cli.App{
+		Usage:       "A cli application for nostr",
 		Description: "A cli application for nostr",
 		Flags: []cli.Flag{
 			&cli.StringFlag{Name: "a", Usage: "profile name"},
