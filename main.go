@@ -9,6 +9,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 	"sync"
@@ -60,8 +61,22 @@ type Profile struct {
 	Name        string `json:"name"`
 }
 
+func configDir() (string, error) {
+	switch runtime.GOOS {
+	case "darwin":
+		dir, err := os.UserHomeDir()
+		if err != nil {
+			return "", err
+		}
+		return filepath.Join(dir, ".config"), nil
+	default:
+		return os.UserConfigDir()
+
+	}
+}
+
 func loadConfig(profile string) (*Config, error) {
-	dir, err := os.UserConfigDir()
+	dir, err := configDir()
 	if err != nil {
 		return nil, err
 	}
