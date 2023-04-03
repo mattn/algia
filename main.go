@@ -93,6 +93,13 @@ func loadConfig(profile string) (*Config, error) {
 	if err != nil {
 		return nil, err
 	}
+	if len(cfg.Relays) == 0 {
+		cfg.Relays["wss://relay.nostr.band"] = Relay{
+			Read:   true,
+			Write:  true,
+			Search: true,
+		}
+	}
 	return &cfg, nil
 }
 
@@ -116,6 +123,15 @@ func (cfg *Config) GetFollows(relay *nostr.Relay, profile string) (map[string]Pr
 
 		cfg.Do(Relay{Read: true}, func(relay *nostr.Relay) {
 			for _, ev := range relay.QuerySync(context.Background(), nostr.Filter{Kinds: []int{nostr.KindContactList}, Authors: []string{pub}, Limit: 1}) {
+				var rm map[string]Relay
+				if err := json.Unmarshal([]byte(ev.Content), &rm); err == nil {
+					for k, v1 := range cfg.Relays {
+						if v2, ok := rm[k]; ok {
+							v2.Search = v1.Search
+						}
+					}
+					cfg.Relays = rm
+				}
 				for _, tag := range ev.Tags {
 					if len(tag) >= 2 && tag[0] == "p" {
 						m[tag[1]] = struct{}{}
