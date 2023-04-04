@@ -272,7 +272,6 @@ func doPost(cCtx *cli.Context) error {
 	}
 
 	ev.CreatedAt = time.Now()
-	ev.CreatedAt = time.Date(1970, 1, 1, 0, 0, 0, 0, time.UTC)
 	ev.Kind = nostr.KindTextNote
 	if err := ev.Sign(sk); err != nil {
 		return err
