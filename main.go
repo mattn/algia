@@ -94,6 +94,7 @@ func loadConfig(profile string) (*Config, error) {
 		return nil, err
 	}
 	if len(cfg.Relays) == 0 {
+		cfg.Relays = map[string]Relay{}
 		cfg.Relays["wss://relay.nostr.band"] = Relay{
 			Read:   true,
 			Write:  true,
