@@ -534,6 +534,17 @@ func main() {
 				Action:    doDMPost,
 			},
 			{
+				Name: "profile",
+				Flags: []cli.Flag{
+					&cli.StringFlag{Name: "u", Value: "", Usage: "user", Required: true},
+					&cli.BoolFlag{Name: "json", Usage: "output JSON"},
+				},
+				Usage:     "show profile",
+				UsageText: "algia profile",
+				HelpName:  "profile",
+				Action:    doProfile,
+			},
+			{
 				Name:      "powa",
 				Usage:     "post ぽわ〜",
 				UsageText: "algia powa",
