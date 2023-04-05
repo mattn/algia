@@ -560,6 +560,9 @@ func main() {
 			},
 		},
 		Before: func(cCtx *cli.Context) error {
+			if cCtx.Args().Get(0) == "version" {
+				return nil
+			}
 			profile := cCtx.String("a")
 			cfg, err := loadConfig(profile)
 			if err != nil {
