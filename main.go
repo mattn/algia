@@ -552,6 +552,13 @@ func main() {
 				Action:    doPowa,
 			},
 			{
+				Name:      "puru",
+				Usage:     "post ぷる",
+				UsageText: "algia puru",
+				HelpName:  "puru",
+				Action:    doPuru,
+			},
+			{
 				Name:      "version",
 				Usage:     "show version",
 				UsageText: "algia version",

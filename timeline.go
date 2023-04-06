@@ -659,3 +659,45 @@ func doPowa(cCtx *cli.Context) error {
 	}
 	return nil
 }
+
+func doPuru(cCtx *cli.Context) error {
+	cfg := cCtx.App.Metadata["config"].(*Config)
+
+	var sk string
+	if _, s, err := nip19.Decode(cfg.PrivateKey); err != nil {
+		return err
+	} else {
+		sk = s.(string)
+	}
+	ev := nostr.Event{}
+	if pub, err := nostr.GetPublicKey(sk); err == nil {
+		if _, err := nip19.EncodePublicKey(pub); err != nil {
+			return err
+		}
+		ev.PubKey = pub
+	} else {
+		return err
+	}
+
+	ev.Content = "(((( ˙꒳​˙  ))))ﾌﾟﾙﾌﾟﾙﾌﾟﾙﾌﾟﾙﾌﾟﾙﾌﾟﾙﾌﾟﾙ"
+	ev.CreatedAt = time.Now()
+	ev.Kind = nostr.KindTextNote
+	if err := ev.Sign(sk); err != nil {
+		return err
+	}
+
+	var success atomic.Int64
+	cfg.Do(Relay{Write: true}, func(relay *nostr.Relay) {
+		status, err := relay.Publish(context.Background(), ev)
+		if cfg.verbose {
+			fmt.Fprintln(os.Stderr, relay.URL, status, err)
+		}
+		if err == nil && status != nostr.PublishStatusFailed {
+			success.Add(1)
+		}
+	})
+	if success.Load() == 0 {
+		return errors.New("cannot post")
+	}
+	return nil
+}
