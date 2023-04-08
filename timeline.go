@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io/ioutil"
 	"os"
+	"regexp"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -23,14 +24,9 @@ func doDMList(cCtx *cli.Context) error {
 	j := cCtx.Bool("json")
 
 	cfg := cCtx.App.Metadata["config"].(*Config)
-	relay := cfg.FindRelay(Relay{Read: true})
-	if relay == nil {
-		return errors.New("cannot connect relays")
-	}
-	defer relay.Close()
 
 	// get followers
-	followsMap, err := cfg.GetFollows(relay, cCtx.String("a"))
+	followsMap, err := cfg.GetFollows(cCtx.String("a"))
 	if err != nil {
 		return err
 	}
@@ -99,11 +95,6 @@ func doDMTimeline(cCtx *cli.Context) error {
 	extra := cCtx.Bool("extra")
 
 	cfg := cCtx.App.Metadata["config"].(*Config)
-	relay := cfg.FindRelay(Relay{Read: true})
-	if relay == nil {
-		return errors.New("cannot connect relays")
-	}
-	defer relay.Close()
 
 	var sk string
 	var npub string
@@ -124,7 +115,7 @@ func doDMTimeline(cCtx *cli.Context) error {
 		pub = s.(string)
 	}
 	// get followers
-	followsMap, err := cfg.GetFollows(relay, cCtx.String("a"))
+	followsMap, err := cfg.GetFollows(cCtx.String("a"))
 	if err != nil {
 		return err
 	}
@@ -556,14 +547,9 @@ func doSearch(cCtx *cli.Context) error {
 	extra := cCtx.Bool("extra")
 
 	cfg := cCtx.App.Metadata["config"].(*Config)
-	relay := cfg.FindRelay(Relay{Search: true})
-	if relay == nil {
-		return errors.New("cannot connect relays")
-	}
-	defer relay.Close()
 
 	// get followers
-	followsMap, err := cfg.GetFollows(relay, cCtx.String("a"))
+	followsMap, err := cfg.GetFollows(cCtx.String("a"))
 	if err != nil {
 		return err
 	}
@@ -584,20 +570,92 @@ func doSearch(cCtx *cli.Context) error {
 	return nil
 }
 
-func doTimeline(cCtx *cli.Context) error {
-	n := cCtx.Int("n")
-	j := cCtx.Bool("json")
-	extra := cCtx.Bool("extra")
+func doStream(cCtx *cli.Context) error {
+	f := cCtx.Bool("follow")
+	pattern := cCtx.String("pattern")
+	reply := cCtx.String("reply")
+
+	var re *regexp.Regexp
+	if pattern != "" {
+		var err error
+		re, err = regexp.Compile(pattern)
+		if err != nil {
+			return err
+		}
+	}
 
 	cfg := cCtx.App.Metadata["config"].(*Config)
+
 	relay := cfg.FindRelay(Relay{Read: true})
 	if relay == nil {
 		return errors.New("cannot connect relays")
 	}
 	defer relay.Close()
 
+	var sk string
+	if _, s, err := nip19.Decode(cfg.PrivateKey); err != nil {
+		return err
+	} else {
+		sk = s.(string)
+	}
+	pub, err := nostr.GetPublicKey(sk)
+	if err != nil {
+		return err
+	}
+
 	// get followers
-	followsMap, err := cfg.GetFollows(relay, cCtx.String("a"))
+	var follows []string
+	if f {
+		followsMap, err := cfg.GetFollows(cCtx.String("a"))
+		if err != nil {
+			return err
+		}
+		for k := range followsMap {
+			follows = append(follows, k)
+		}
+	}
+
+	since := time.Now()
+	filter := nostr.Filter{
+		Kinds:   []int{nostr.KindTextNote},
+		Authors: follows,
+		Since:   &since,
+	}
+
+	sub := relay.Subscribe(context.Background(), nostr.Filters{filter})
+	for ev := range sub.Events {
+		if re != nil && !re.MatchString(ev.Content) {
+			continue
+		}
+		json.NewEncoder(os.Stdout).Encode(ev)
+		if reply != "" {
+			var evr nostr.Event
+			evr.PubKey = pub
+			evr.Content = reply
+			evr.Tags = evr.Tags.AppendUnique(nostr.Tag{"e", ev.ID, "", "reply"})
+			evr.CreatedAt = time.Now()
+			evr.Kind = nostr.KindTextNote
+			if err := evr.Sign(sk); err != nil {
+				fmt.Println(err)
+				return err
+			}
+			cfg.Do(Relay{Write: true}, func(relay *nostr.Relay) {
+				relay.Publish(context.Background(), evr)
+			})
+		}
+	}
+	return nil
+}
+
+func doTimeline(cCtx *cli.Context) error {
+	n := cCtx.Int("n")
+	j := cCtx.Bool("json")
+	extra := cCtx.Bool("extra")
+
+	cfg := cCtx.App.Metadata["config"].(*Config)
+
+	// get followers
+	followsMap, err := cfg.GetFollows(cCtx.String("a"))
 	if err != nil {
 		return err
 	}

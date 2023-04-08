@@ -119,7 +119,7 @@ func loadConfig(profile string) (*Config, error) {
 	return &cfg, nil
 }
 
-func (cfg *Config) GetFollows(relay *nostr.Relay, profile string) (map[string]Profile, error) {
+func (cfg *Config) GetFollows(profile string) (map[string]Profile, error) {
 	var mu sync.Mutex
 	var pub string
 	if _, s, err := nip19.Decode(cfg.PrivateKey); err != nil {
@@ -427,6 +427,16 @@ func main() {
 					&cli.BoolFlag{Name: "extra", Usage: "extra JSON"},
 				},
 				Action: doTimeline,
+			},
+			{
+				Name:  "stream",
+				Usage: "show stream",
+				Flags: []cli.Flag{
+					&cli.BoolFlag{Name: "follow"},
+					&cli.StringFlag{Name: "pattern"},
+					&cli.StringFlag{Name: "reply"},
+				},
+				Action: doStream,
 			},
 			{
 				Name:    "post",
