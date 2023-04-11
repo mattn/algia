@@ -69,7 +69,6 @@ func configDir() (string, error) {
 		return filepath.Join(dir, ".config"), nil
 	default:
 		return os.UserConfigDir()
-
 	}
 }
 
@@ -251,7 +250,7 @@ func (cfg *Config) save(profile string) error {
 	if cfg.tempRelay {
 		return nil
 	}
-	dir, err := os.UserConfigDir()
+	dir, err := configDir()
 	if err != nil {
 		return err
 	}
