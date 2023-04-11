@@ -69,7 +69,6 @@ func configDir() (string, error) {
 		return filepath.Join(dir, ".config"), nil
 	default:
 		return os.UserConfigDir()
-
 	}
 }
 
