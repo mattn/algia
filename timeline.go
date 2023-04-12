@@ -262,6 +262,12 @@ func doPost(cCtx *cli.Context) error {
 		ev.Tags = ev.Tags.AppendUnique(nostr.Tag{"content-warning", sensitive})
 	}
 
+	hashtag := nostr.Tag{"h"}
+	for _, m := range regexp.MustCompile(`#[a-zA-Z0-9]+`).FindAllStringSubmatchIndex(ev.Content, -1) {
+		hashtag = append(hashtag, ev.Content[m[0]+1:m[1]])
+	}
+	ev.Tags = ev.Tags.AppendUnique(hashtag)
+
 	ev.CreatedAt = time.Now()
 	ev.Kind = nostr.KindTextNote
 	if err := ev.Sign(sk); err != nil {
