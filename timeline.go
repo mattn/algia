@@ -578,6 +578,7 @@ func doSearch(cCtx *cli.Context) error {
 
 func doStream(cCtx *cli.Context) error {
 	kinds := cCtx.IntSlice("kind")
+	authors := cCtx.StringSlice("author")
 	f := cCtx.Bool("follow")
 	pattern := cCtx.String("pattern")
 	reply := cCtx.String("reply")
@@ -620,6 +621,8 @@ func doStream(cCtx *cli.Context) error {
 		for k := range followsMap {
 			follows = append(follows, k)
 		}
+	} else {
+		follows = authors
 	}
 
 	since := time.Now()
