@@ -577,6 +577,7 @@ func doSearch(cCtx *cli.Context) error {
 }
 
 func doStream(cCtx *cli.Context) error {
+	kinds := cCtx.IntSlice("kind")
 	f := cCtx.Bool("follow")
 	pattern := cCtx.String("pattern")
 	reply := cCtx.String("reply")
@@ -623,31 +624,35 @@ func doStream(cCtx *cli.Context) error {
 
 	since := time.Now()
 	filter := nostr.Filter{
-		Kinds:   []int{nostr.KindTextNote},
+		Kinds:   kinds,
 		Authors: follows,
 		Since:   &since,
 	}
 
 	sub := relay.Subscribe(context.Background(), nostr.Filters{filter})
 	for ev := range sub.Events {
-		if re != nil && !re.MatchString(ev.Content) {
-			continue
-		}
-		json.NewEncoder(os.Stdout).Encode(ev)
-		if reply != "" {
-			var evr nostr.Event
-			evr.PubKey = pub
-			evr.Content = reply
-			evr.Tags = evr.Tags.AppendUnique(nostr.Tag{"e", ev.ID, "", "reply"})
-			evr.CreatedAt = time.Now()
-			evr.Kind = nostr.KindTextNote
-			if err := evr.Sign(sk); err != nil {
-				fmt.Println(err)
-				return err
+		if ev.Kind == nostr.KindTextNote {
+			if re != nil && !re.MatchString(ev.Content) {
+				continue
 			}
-			cfg.Do(Relay{Write: true}, func(relay *nostr.Relay) {
-				relay.Publish(context.Background(), evr)
-			})
+			json.NewEncoder(os.Stdout).Encode(ev)
+			if reply != "" {
+				var evr nostr.Event
+				evr.PubKey = pub
+				evr.Content = reply
+				evr.Tags = evr.Tags.AppendUnique(nostr.Tag{"e", ev.ID, "", "reply"})
+				evr.CreatedAt = time.Now()
+				evr.Kind = nostr.KindTextNote
+				if err := evr.Sign(sk); err != nil {
+					fmt.Println(err)
+					return err
+				}
+				cfg.Do(Relay{Write: true}, func(relay *nostr.Relay) {
+					relay.Publish(context.Background(), evr)
+				})
+			}
+		} else {
+			json.NewEncoder(os.Stdout).Encode(ev)
 		}
 	}
 	return nil
