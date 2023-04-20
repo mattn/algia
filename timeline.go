@@ -405,7 +405,11 @@ func doRepost(cCtx *cli.Context) error {
 	var success atomic.Int64
 	cfg.Do(Relay{Write: true}, func(relay *nostr.Relay) {
 		if first.Load() {
-			for _, tmp := range relay.QuerySync(context.Background(), filter) {
+			evs, err := relay.QuerySync(context.Background(), filter)
+			if err != nil {
+				return
+			}
+			for _, tmp := range evs {
 				ev.Tags = ev.Tags.AppendUnique(nostr.Tag{"p", tmp.ID})
 			}
 			first.Store(false)
@@ -472,7 +476,11 @@ func doLike(cCtx *cli.Context) error {
 	var success atomic.Int64
 	cfg.Do(Relay{Write: true}, func(relay *nostr.Relay) {
 		if first.Load() {
-			for _, tmp := range relay.QuerySync(context.Background(), filter) {
+			evs, err := relay.QuerySync(context.Background(), filter)
+			if err != nil {
+				return
+			}
+			for _, tmp := range evs {
 				ev.Tags = ev.Tags.AppendUnique(nostr.Tag{"p", tmp.ID})
 			}
 			first.Store(false)
@@ -555,13 +563,15 @@ func doSearch(cCtx *cli.Context) error {
 	cfg := cCtx.App.Metadata["config"].(*Config)
 
 	// get followers
-	followsMap, err := cfg.GetFollows(cCtx.String("a"))
-	if err != nil {
-		return err
-	}
-	var follows []string
-	for k := range followsMap {
-		follows = append(follows, k)
+	var followsMap map[string]Profile
+	var err error
+	if j && !extra {
+		followsMap = make(map[string]Profile)
+	} else {
+		followsMap, err = cfg.GetFollows(cCtx.String("a"))
+		if err != nil {
+			return err
+		}
 	}
 
 	// get timeline
@@ -632,7 +642,10 @@ func doStream(cCtx *cli.Context) error {
 		Since:   &since,
 	}
 
-	sub := relay.Subscribe(context.Background(), nostr.Filters{filter})
+	sub, err := relay.Subscribe(context.Background(), nostr.Filters{filter})
+	if err != nil {
+		return err
+	}
 	for ev := range sub.Events {
 		if ev.Kind == nostr.KindTextNote {
 			if re != nil && !re.MatchString(ev.Content) {

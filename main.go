@@ -137,7 +137,11 @@ func (cfg *Config) GetFollows(profile string) (map[string]Profile, error) {
 		m := map[string]struct{}{}
 
 		cfg.Do(Relay{Read: true}, func(relay *nostr.Relay) {
-			for _, ev := range relay.QuerySync(context.Background(), nostr.Filter{Kinds: []int{nostr.KindContactList}, Authors: []string{pub}, Limit: 1}) {
+			evs, err := relay.QuerySync(context.Background(), nostr.Filter{Kinds: []int{nostr.KindContactList}, Authors: []string{pub}, Limit: 1})
+			if err != nil {
+				return
+			}
+			for _, ev := range evs {
 				var rm map[string]Relay
 				if err := json.Unmarshal([]byte(ev.Content), &rm); err == nil {
 					for k, v1 := range cfg.Relays {
@@ -165,10 +169,13 @@ func (cfg *Config) GetFollows(profile string) (map[string]Profile, error) {
 
 			// get follower's desecriptions
 			cfg.Do(Relay{Read: true}, func(relay *nostr.Relay) {
-				evs := relay.QuerySync(context.Background(), nostr.Filter{
+				evs, err := relay.QuerySync(context.Background(), nostr.Filter{
 					Kinds:   []int{nostr.KindSetMetadata},
 					Authors: follows,
 				})
+				if err != nil {
+					return
+				}
 				for _, ev := range evs {
 					var profile Profile
 					err := json.Unmarshal([]byte(ev.Content), &profile)
@@ -351,7 +358,10 @@ func (cfg *Config) PrintEvents(evs []*nostr.Event, followsMap map[string]Profile
 func (cfg *Config) Events(filter nostr.Filter) []*nostr.Event {
 	var m sync.Map
 	cfg.Do(Relay{Read: true}, func(relay *nostr.Relay) {
-		evs := relay.QuerySync(context.Background(), filter)
+		evs, err := relay.QuerySync(context.Background(), filter)
+		if err != nil {
+			return
+		}
 		for _, ev := range evs {
 			if _, ok := m.Load(ev.ID); !ok {
 				if ev.Kind == nostr.KindEncryptedDirectMessage {
