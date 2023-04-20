@@ -10,7 +10,6 @@ import (
 	"regexp"
 	"strings"
 	"sync/atomic"
-	"time"
 
 	"github.com/urfave/cli/v2"
 
@@ -184,7 +183,7 @@ func doDMPost(cCtx *cli.Context) error {
 	}
 
 	ev.Tags = ev.Tags.AppendUnique(nostr.Tag{"p", pub})
-	ev.CreatedAt = time.Now()
+	ev.CreatedAt = nostr.Now()
 	ev.Kind = nostr.KindEncryptedDirectMessage
 
 	ss, err := nip04.ComputeSharedSecret(ev.PubKey, sk)
@@ -268,7 +267,7 @@ func doPost(cCtx *cli.Context) error {
 	}
 	ev.Tags = ev.Tags.AppendUnique(hashtag)
 
-	ev.CreatedAt = time.Now()
+	ev.CreatedAt = nostr.Now()
 	ev.Kind = nostr.KindTextNote
 	if err := ev.Sign(sk); err != nil {
 		return err
@@ -324,7 +323,7 @@ func doReply(cCtx *cli.Context) error {
 		}
 	}
 
-	ev.CreatedAt = time.Now()
+	ev.CreatedAt = nostr.Now()
 	ev.Kind = nostr.KindTextNote
 	if stdin {
 		b, err := ioutil.ReadAll(os.Stdin)
@@ -395,7 +394,7 @@ func doRepost(cCtx *cli.Context) error {
 		IDs:   []string{id},
 	}
 
-	ev.CreatedAt = time.Now()
+	ev.CreatedAt = nostr.Now()
 	ev.Kind = nostr.KindBoost
 	ev.Content = ""
 
@@ -466,7 +465,7 @@ func doLike(cCtx *cli.Context) error {
 		IDs:   []string{id},
 	}
 
-	ev.CreatedAt = time.Now()
+	ev.CreatedAt = nostr.Now()
 	ev.Kind = nostr.KindReaction
 	ev.Content = "+"
 
@@ -533,7 +532,7 @@ func doDelete(cCtx *cli.Context) error {
 		ev.Tags = ev.Tags.AppendUnique(nostr.Tag{"e", id})
 	}
 
-	ev.CreatedAt = time.Now()
+	ev.CreatedAt = nostr.Now()
 	ev.Kind = nostr.KindDeletion
 	if err := ev.Sign(sk); err != nil {
 		return err
@@ -635,7 +634,7 @@ func doStream(cCtx *cli.Context) error {
 		follows = authors
 	}
 
-	since := time.Now()
+	since := nostr.Now()
 	filter := nostr.Filter{
 		Kinds:   kinds,
 		Authors: follows,
@@ -657,7 +656,7 @@ func doStream(cCtx *cli.Context) error {
 				evr.PubKey = pub
 				evr.Content = reply
 				evr.Tags = evr.Tags.AppendUnique(nostr.Tag{"e", ev.ID, "", "reply"})
-				evr.CreatedAt = time.Now()
+				evr.CreatedAt = nostr.Now()
 				evr.Kind = nostr.KindTextNote
 				if err := evr.Sign(sk); err != nil {
 					fmt.Println(err)
@@ -723,7 +722,7 @@ func postMsg(cCtx *cli.Context, msg string) error {
 	}
 
 	ev.Content = msg
-	ev.CreatedAt = time.Now()
+	ev.CreatedAt = nostr.Now()
 	ev.Kind = nostr.KindTextNote
 	if err := ev.Sign(sk); err != nil {
 		return err

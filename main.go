@@ -398,7 +398,7 @@ func (cfg *Config) Events(filter nostr.Filter) []*nostr.Event {
 		if !ok {
 			return false
 		}
-		return lhs.(*nostr.Event).CreatedAt.Before(rhs.(*nostr.Event).CreatedAt)
+		return lhs.(*nostr.Event).CreatedAt.Time().Before(rhs.(*nostr.Event).CreatedAt.Time())
 	})
 	var evs []*nostr.Event
 	for _, key := range keys {
