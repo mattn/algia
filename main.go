@@ -470,6 +470,7 @@ func main() {
 					&cli.BoolFlag{Name: "stdin"},
 					&cli.StringFlag{Name: "id", Required: true},
 					&cli.BoolFlag{Name: "quote"},
+					&cli.StringFlag{Name: "sensitive"},
 				},
 				Usage:     "reply to the note",
 				UsageText: "algia reply --id [id] [note text]",

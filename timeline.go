@@ -305,6 +305,7 @@ func doReply(cCtx *cli.Context) error {
 	if !stdin && cCtx.Args().Len() == 0 {
 		return cli.ShowSubcommandHelp(cCtx)
 	}
+	sensitive := cCtx.String("sensitive")
 
 	cfg := cCtx.App.Metadata["config"].(*Config)
 
@@ -342,6 +343,21 @@ func doReply(cCtx *cli.Context) error {
 		ev.Content = string(b)
 	} else {
 		ev.Content = strings.Join(cCtx.Args().Slice(), "\n")
+	}
+	if strings.TrimSpace(ev.Content) == "" {
+		return errors.New("content is empty")
+	}
+
+	if sensitive != "" {
+		ev.Tags = ev.Tags.AppendUnique(nostr.Tag{"content-warning", sensitive})
+	}
+
+	hashtag := nostr.Tag{"h"}
+	for _, m := range regexp.MustCompile(`#[a-zA-Z0-9]+`).FindAllStringSubmatchIndex(ev.Content, -1) {
+		hashtag = append(hashtag, ev.Content[m[0]+1:m[1]])
+	}
+	if len(hashtag) > 1 {
+		ev.Tags = ev.Tags.AppendUnique(hashtag)
 	}
 
 	var success atomic.Int64
