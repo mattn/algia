@@ -254,7 +254,14 @@ func doPost(cCtx *cli.Context) error {
 
 	for i, u := range cCtx.StringSlice("u") {
 		ev.Content = fmt.Sprintf("#[%d] ", i) + ev.Content
-		ev.Tags = ev.Tags.AppendUnique(nostr.Tag{"p", u, "", "reply"})
+		if strings.HasPrefix(u, "npub1") {
+			if _, s, err := nip19.Decode(u); err != nil {
+				return err
+			} else {
+				u = s.(string)
+			}
+		}
+		ev.Tags = ev.Tags.AppendUnique(nostr.Tag{"p", u})
 	}
 
 	if sensitive != "" {
@@ -265,7 +272,9 @@ func doPost(cCtx *cli.Context) error {
 	for _, m := range regexp.MustCompile(`#[a-zA-Z0-9]+`).FindAllStringSubmatchIndex(ev.Content, -1) {
 		hashtag = append(hashtag, ev.Content[m[0]+1:m[1]])
 	}
-	ev.Tags = ev.Tags.AppendUnique(hashtag)
+	if len(hashtag) > 1 {
+		ev.Tags = ev.Tags.AppendUnique(hashtag)
+	}
 
 	ev.CreatedAt = nostr.Now()
 	ev.Kind = nostr.KindTextNote
