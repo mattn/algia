@@ -153,7 +153,9 @@ func (cfg *Config) GetFollows(profile string) (map[string]Profile, error) {
 				}
 				for _, tag := range ev.Tags {
 					if len(tag) >= 2 && tag[0] == "p" {
+						mu.Lock()
 						m[tag[1]] = struct{}{}
+						mu.Unlock()
 					}
 				}
 			}
