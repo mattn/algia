@@ -10,6 +10,7 @@ import (
 
 	"github.com/nbd-wtf/go-nostr"
 	"github.com/nbd-wtf/go-nostr/nip19"
+	"github.com/nbd-wtf/go-nostr/sdk"
 )
 
 func doProfile(cCtx *cli.Context) error {
@@ -33,10 +34,10 @@ func doProfile(cCtx *cli.Context) error {
 			}
 		}
 	} else {
-		if _, s, err := nip19.Decode(user); err != nil {
-			pub = user
+		if pp := sdk.InputToProfile(user); pp == nil {
+			return fmt.Errorf("failed to parse pubkey from '%s'", user)
 		} else {
-			pub = s.(string)
+			pub = pp.PublicKey
 		}
 	}
 
