@@ -17,6 +17,7 @@ import (
 	"github.com/nbd-wtf/go-nostr"
 	"github.com/nbd-wtf/go-nostr/nip04"
 	"github.com/nbd-wtf/go-nostr/nip19"
+	"github.com/nbd-wtf/go-nostr/sdk"
 )
 
 func doDMList(cCtx *cli.Context) error {
@@ -108,10 +109,10 @@ func doDMTimeline(cCtx *cli.Context) error {
 	}
 
 	var pub string
-	if _, s, err := nip19.Decode(u); err != nil {
-		return err
+	if pp := sdk.InputToProfile(u); pp == nil {
+		return fmt.Errorf("failed to parse pubkey from '%s'", u)
 	} else {
-		pub = s.(string)
+		pub = pp.PublicKey
 	}
 	// get followers
 	followsMap, err := cfg.GetFollows(cCtx.String("a"))
@@ -143,10 +144,10 @@ func doDMPost(cCtx *cli.Context) error {
 	cfg := cCtx.App.Metadata["config"].(*Config)
 
 	var pub string
-	if _, s, err := nip19.Decode(u); err != nil {
-		return err
+	if pp := sdk.InputToProfile(u); pp == nil {
+		return fmt.Errorf("failed to parse pubkey from '%s'", u)
 	} else {
-		pub = s.(string)
+		pub = pp.PublicKey
 	}
 
 	var sk string
@@ -254,12 +255,10 @@ func doPost(cCtx *cli.Context) error {
 
 	for i, u := range cCtx.StringSlice("u") {
 		ev.Content = fmt.Sprintf("#[%d] ", i) + ev.Content
-		if strings.HasPrefix(u, "npub1") {
-			if _, s, err := nip19.Decode(u); err != nil {
-				return err
-			} else {
-				u = s.(string)
-			}
+		if pp := sdk.InputToProfile(u); pp == nil {
+			return fmt.Errorf("failed to parse pubkey from '%s'", u)
+		} else {
+			u = pp.PublicKey
 		}
 		ev.Tags = ev.Tags.AppendUnique(nostr.Tag{"p", u})
 	}
@@ -325,12 +324,10 @@ func doReply(cCtx *cli.Context) error {
 		return err
 	}
 
-	if _, tmp, err := nip19.Decode(id); err == nil {
-		if s, ok := tmp.(string); ok {
-			id = s
-		} else if s, ok := tmp.(nostr.EventPointer); ok {
-			id = s.ID
-		}
+	if evp := sdk.InputToEventPointer(id); evp == nil {
+		return fmt.Errorf("failed to parse event from '%s'", id)
+	} else {
+		id = evp.ID
 	}
 
 	ev.CreatedAt = nostr.Now()
@@ -405,15 +402,12 @@ func doRepost(cCtx *cli.Context) error {
 		return err
 	}
 
-	if _, tmp, err := nip19.Decode(id); err == nil {
-		if s, ok := tmp.(string); ok {
-			ev.Tags = ev.Tags.AppendUnique(nostr.Tag{"e", s})
-		} else if s, ok := tmp.(nostr.EventPointer); ok {
-			ev.Tags = ev.Tags.AppendUnique(nostr.Tag{"e", s.ID})
-		}
+	if evp := sdk.InputToEventPointer(id); evp == nil {
+		return fmt.Errorf("failed to parse event from '%s'", id)
 	} else {
-		ev.Tags = ev.Tags.AppendUnique(nostr.Tag{"e", id})
+		id = evp.ID
 	}
+	ev.Tags = ev.Tags.AppendUnique(nostr.Tag{"e", id})
 	filter := nostr.Filter{
 		Kinds: []int{nostr.KindTextNote},
 		IDs:   []string{id},
@@ -476,15 +470,12 @@ func doLike(cCtx *cli.Context) error {
 		return err
 	}
 
-	if _, tmp, err := nip19.Decode(id); err == nil {
-		if s, ok := tmp.(string); ok {
-			ev.Tags = ev.Tags.AppendUnique(nostr.Tag{"e", s})
-		} else if s, ok := tmp.(nostr.EventPointer); ok {
-			ev.Tags = ev.Tags.AppendUnique(nostr.Tag{"e", s.ID})
-		}
+	if evp := sdk.InputToEventPointer(id); evp == nil {
+		return fmt.Errorf("failed to parse event from '%s'", id)
 	} else {
-		ev.Tags = ev.Tags.AppendUnique(nostr.Tag{"e", id})
+		id = evp.ID
 	}
+	ev.Tags = ev.Tags.AppendUnique(nostr.Tag{"e", id})
 	filter := nostr.Filter{
 		Kinds: []int{nostr.KindTextNote},
 		IDs:   []string{id},
@@ -547,16 +538,12 @@ func doDelete(cCtx *cli.Context) error {
 		return err
 	}
 
-	if _, tmp, err := nip19.Decode(id); err == nil {
-		if s, ok := tmp.(string); ok {
-			ev.Tags = ev.Tags.AppendUnique(nostr.Tag{"e", s})
-		} else if s, ok := tmp.(nostr.EventPointer); ok {
-			ev.Tags = ev.Tags.AppendUnique(nostr.Tag{"e", s.ID})
-		}
+	if evp := sdk.InputToEventPointer(id); evp == nil {
+		return fmt.Errorf("failed to parse event from '%s'", id)
 	} else {
-		ev.Tags = ev.Tags.AppendUnique(nostr.Tag{"e", id})
+		id = evp.ID
 	}
-
+	ev.Tags = ev.Tags.AppendUnique(nostr.Tag{"e", id})
 	ev.CreatedAt = nostr.Now()
 	ev.Kind = nostr.KindDeletion
 	if err := ev.Sign(sk); err != nil {
