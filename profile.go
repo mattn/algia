@@ -66,7 +66,7 @@ func doProfile(cCtx *cli.Context) error {
 	fmt.Printf("WebSite: %v\n", profile.Website)
 	fmt.Printf("Picture: %v\n", profile.Picture)
 	fmt.Printf("NIP-05: %v\n", profile.Nip05)
-	fmt.Printf("LUC16: %v\n", profile.Lud16)
+	fmt.Printf("LUD-16: %v\n", profile.Lud16)
 	fmt.Printf("About: %v\n", profile.About)
 	return nil
 }
