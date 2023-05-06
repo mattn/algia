@@ -299,9 +299,6 @@ func (cfg *Config) Decode(ev *nostr.Event) error {
 			return errors.New("is not author")
 		}
 	} else {
-		if sp == ev.PubKey {
-			return errors.New("is not author")
-		}
 		sp = ev.PubKey
 	}
 	ss, err := nip04.ComputeSharedSecret(sp, sk)
@@ -367,16 +364,6 @@ func (cfg *Config) Events(filter nostr.Filter) []*nostr.Event {
 		for _, ev := range evs {
 			if _, ok := m.Load(ev.ID); !ok {
 				if ev.Kind == nostr.KindEncryptedDirectMessage {
-					found := false
-					for _, k := range filter.Authors {
-						if k == ev.PubKey {
-							found = true
-							break
-						}
-					}
-					if !found {
-						continue
-					}
 					if err := cfg.Decode(ev); err != nil {
 						continue
 					}

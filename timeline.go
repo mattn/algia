@@ -46,7 +46,6 @@ func doDMList(cCtx *cli.Context) error {
 	filter := nostr.Filter{
 		Kinds:   []int{nostr.KindEncryptedDirectMessage},
 		Authors: []string{npub},
-		Limit:   9999,
 	}
 
 	evs := cfg.Events(filter)
@@ -66,6 +65,11 @@ func doDMList(cCtx *cli.Context) error {
 			p, _ = nip19.EncodePublicKey(p)
 			users = append(users, entry{
 				name:   profile.DisplayName,
+				pubkey: p,
+			})
+		} else {
+			users = append(users, entry{
+				name:   p,
 				pubkey: p,
 			})
 		}
@@ -671,7 +675,6 @@ func doStream(cCtx *cli.Context) error {
 				evr.CreatedAt = nostr.Now()
 				evr.Kind = nostr.KindTextNote
 				if err := evr.Sign(sk); err != nil {
-					fmt.Println(err)
 					return err
 				}
 				cfg.Do(Relay{Write: true}, func(relay *nostr.Relay) {
