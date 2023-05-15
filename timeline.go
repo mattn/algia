@@ -257,6 +257,7 @@ func doPost(cCtx *cli.Context) error {
 		return errors.New("content is empty")
 	}
 
+	ev.Tags = nostr.Tags{ }
 	for i, u := range cCtx.StringSlice("u") {
 		ev.Content = fmt.Sprintf("#[%d] ", i) + ev.Content
 		if pp := sdk.InputToProfile(u); pp == nil {
