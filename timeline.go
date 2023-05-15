@@ -257,7 +257,15 @@ func doPost(cCtx *cli.Context) error {
 		return errors.New("content is empty")
 	}
 
-	ev.Tags = nostr.Tags{ }
+	ev.Tags = nostr.Tags{}
+	for _, u := range cCtx.StringSlice("emoji") {
+		tok := strings.SplitN(u, "=", 2)
+		if len(tok) != 2 {
+			return cli.ShowSubcommandHelp(cCtx)
+		}
+		ev.Tags = ev.Tags.AppendUnique(nostr.Tag{"emoji", tok[0], tok[1]})
+	}
+
 	for i, u := range cCtx.StringSlice("u") {
 		ev.Content = fmt.Sprintf("#[%d] ", i) + ev.Content
 		if pp := sdk.InputToProfile(u); pp == nil {
@@ -348,6 +356,15 @@ func doReply(cCtx *cli.Context) error {
 	}
 	if strings.TrimSpace(ev.Content) == "" {
 		return errors.New("content is empty")
+	}
+
+	ev.Tags = nostr.Tags{}
+	for _, u := range cCtx.StringSlice("emoji") {
+		tok := strings.SplitN(u, "=", 2)
+		if len(tok) != 2 {
+			return cli.ShowSubcommandHelp(cCtx)
+		}
+		ev.Tags = ev.Tags.AppendUnique(nostr.Tag{"emoji", tok[0], tok[1]})
 	}
 
 	if sensitive != "" {
