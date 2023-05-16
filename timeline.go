@@ -265,6 +265,12 @@ func doPost(cCtx *cli.Context) error {
 		}
 		ev.Tags = ev.Tags.AppendUnique(nostr.Tag{"emoji", tok[0], tok[1]})
 	}
+	for _, entry := range extractEmojis(ev.Content) {
+		name := strings.Trim(entry.text, ":")
+		if icon, ok := cfg.Emojis[name]; ok {
+			ev.Tags = ev.Tags.AppendUnique(nostr.Tag{"emoji", name, icon})
+		}
+	}
 
 	for i, u := range cCtx.StringSlice("u") {
 		ev.Content = fmt.Sprintf("#[%d] ", i) + ev.Content
@@ -365,6 +371,12 @@ func doReply(cCtx *cli.Context) error {
 			return cli.ShowSubcommandHelp(cCtx)
 		}
 		ev.Tags = ev.Tags.AppendUnique(nostr.Tag{"emoji", tok[0], tok[1]})
+	}
+	for _, entry := range extractEmojis(ev.Content) {
+		name := strings.Trim(entry.text, ":")
+		if icon, ok := cfg.Emojis[name]; ok {
+			ev.Tags = ev.Tags.AppendUnique(nostr.Tag{"emoji", name, icon})
+		}
 	}
 
 	if sensitive != "" {

@@ -39,6 +39,7 @@ type Config struct {
 	Follows    map[string]Profile `json:"follows"`
 	PrivateKey string             `json:"privatekey"`
 	Updated    time.Time          `json:"updated"`
+	Emojis     map[string]string  `json:"emojis"`
 	verbose    bool
 	tempRelay  bool
 	sk         string
