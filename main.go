@@ -144,13 +144,15 @@ func (cfg *Config) GetFollows(profile string) (map[string]Profile, error) {
 			}
 			for _, ev := range evs {
 				var rm map[string]Relay
-				if err := json.Unmarshal([]byte(ev.Content), &rm); err == nil {
-					for k, v1 := range cfg.Relays {
-						if v2, ok := rm[k]; ok {
-							v2.Search = v1.Search
+				if cfg.tempRelay == false {
+					if err := json.Unmarshal([]byte(ev.Content), &rm); err == nil {
+						for k, v1 := range cfg.Relays {
+							if v2, ok := rm[k]; ok {
+								v2.Search = v1.Search
+							}
 						}
+						cfg.Relays = rm
 					}
-					cfg.Relays = rm
 				}
 				for _, tag := range ev.Tags {
 					if len(tag) >= 2 && tag[0] == "p" {
