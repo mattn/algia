@@ -172,25 +172,27 @@ func (cfg *Config) GetFollows(profile string) (map[string]Profile, error) {
 				follows = append(follows, k)
 			}
 
-			// get follower's desecriptions
-			cfg.Do(Relay{Read: true}, func(relay *nostr.Relay) {
-				evs, err := relay.QuerySync(context.Background(), nostr.Filter{
-					Kinds:   []int{nostr.KindSetMetadata},
-					Authors: follows,
-				})
-				if err != nil {
-					return
-				}
-				for _, ev := range evs {
-					var profile Profile
-					err := json.Unmarshal([]byte(ev.Content), &profile)
-					if err == nil {
-						mu.Lock()
-						cfg.Follows[ev.PubKey] = profile
-						mu.Unlock()
+			for i := 0; i < len(follows); i += 500 {
+				// get follower's desecriptions
+				cfg.Do(Relay{Read: true}, func(relay *nostr.Relay) {
+					evs, err := relay.QuerySync(context.Background(), nostr.Filter{
+						Kinds:   []int{nostr.KindSetMetadata},
+						Authors: follows[i : i+500],
+					})
+					if err != nil {
+						return
 					}
-				}
-			})
+					for _, ev := range evs {
+						var profile Profile
+						err := json.Unmarshal([]byte(ev.Content), &profile)
+						if err == nil {
+							mu.Lock()
+							cfg.Follows[ev.PubKey] = profile
+							mu.Unlock()
+						}
+					}
+				})
+			}
 		}
 
 		cfg.Updated = time.Now()
