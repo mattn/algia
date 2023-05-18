@@ -517,7 +517,7 @@ func doUnrepost(cCtx *cli.Context) error {
 			return
 		}
 		mu.Lock()
-		if repostID == "" {
+		if len(evs) > 0 && repostID == "" {
 			repostID = evs[0].ID
 		}
 		mu.Unlock()
@@ -648,7 +648,7 @@ func doUnlike(cCtx *cli.Context) error {
 			return
 		}
 		mu.Lock()
-		if likeID == "" {
+		if len(evs) > 0 && likeID == "" {
 			likeID = evs[0].ID
 		}
 		mu.Unlock()
