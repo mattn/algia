@@ -131,7 +131,7 @@ func (cfg *Config) GetFollows(profile string) (map[string]Profile, error) {
 	}
 
 	// get followers
-	if cfg.Updated.Add(3*time.Hour).Before(time.Now()) || len(cfg.Follows) == 0 {
+	if (cfg.Updated.Add(3*time.Hour).Before(time.Now()) && !cfg.tempRelay) || len(cfg.Follows) == 0 {
 		mu.Lock()
 		cfg.Follows = map[string]Profile{}
 		mu.Unlock()
