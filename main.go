@@ -486,6 +486,17 @@ func main() {
 				Action:    doRepost,
 			},
 			{
+				Name:    "unrepost",
+				Aliases: []string{"B"},
+				Flags: []cli.Flag{
+					&cli.StringFlag{Name: "id", Required: true},
+				},
+				Usage:     "unrepost the note",
+				UsageText: "algia unrepost --id [id]",
+				HelpName:  "unrepost",
+				Action:    doUnrepost,
+			},
+			{
 				Name:    "like",
 				Aliases: []string{"l"},
 				Flags: []cli.Flag{
@@ -495,6 +506,17 @@ func main() {
 				UsageText: "algia like --id [id]",
 				HelpName:  "lite",
 				Action:    doLike,
+			},
+			{
+				Name:    "unlike",
+				Aliases: []string{"L"},
+				Flags: []cli.Flag{
+					&cli.StringFlag{Name: "id", Required: true},
+				},
+				Usage:     "unlike the note",
+				UsageText: "algia unlike --id [id]",
+				HelpName:  "unlite",
+				Action:    doUnlike,
 			},
 			{
 				Name:    "delete",

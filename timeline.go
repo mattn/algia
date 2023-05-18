@@ -9,6 +9,7 @@ import (
 	"os"
 	"regexp"
 	"strings"
+	"sync"
 	"sync/atomic"
 
 	"github.com/urfave/cli/v2"
@@ -483,6 +484,69 @@ func doRepost(cCtx *cli.Context) error {
 	return nil
 }
 
+func doUnrepost(cCtx *cli.Context) error {
+	id := cCtx.String("id")
+	if evp := sdk.InputToEventPointer(id); evp == nil {
+		return fmt.Errorf("failed to parse event from '%s'", id)
+	} else {
+		id = evp.ID
+	}
+
+	cfg := cCtx.App.Metadata["config"].(*Config)
+
+	var sk string
+	if _, s, err := nip19.Decode(cfg.PrivateKey); err != nil {
+		return err
+	} else {
+		sk = s.(string)
+	}
+	pub, err := nostr.GetPublicKey(sk)
+	if err != nil {
+		return err
+	}
+	filter := nostr.Filter{
+		Kinds:   []int{nostr.KindBoost},
+		Authors: []string{pub},
+		Tags:    nostr.TagMap{"e": []string{id}},
+	}
+	var repostID string
+	var mu sync.Mutex
+	cfg.Do(Relay{Read: true}, func(relay *nostr.Relay) {
+		evs, err := relay.QuerySync(context.Background(), filter)
+		if err != nil {
+			return
+		}
+		mu.Lock()
+		if repostID == "" {
+			repostID = evs[0].ID
+		}
+		mu.Unlock()
+	})
+
+	var ev nostr.Event
+	ev.Tags = ev.Tags.AppendUnique(nostr.Tag{"e", repostID})
+	ev.CreatedAt = nostr.Now()
+	ev.Kind = nostr.KindDeletion
+	if err := ev.Sign(sk); err != nil {
+		return err
+	}
+
+	var success atomic.Int64
+	cfg.Do(Relay{Write: true}, func(relay *nostr.Relay) {
+		status, err := relay.Publish(context.Background(), ev)
+		if cfg.verbose {
+			fmt.Fprintln(os.Stderr, relay.URL, status, err)
+		}
+		if err == nil && status != nostr.PublishStatusFailed {
+			success.Add(1)
+		}
+	})
+	if success.Load() == 0 {
+		return errors.New("cannot unrepost")
+	}
+	return nil
+}
+
 func doLike(cCtx *cli.Context) error {
 	id := cCtx.String("id")
 
@@ -547,6 +611,69 @@ func doLike(cCtx *cli.Context) error {
 	})
 	if success.Load() == 0 {
 		return errors.New("cannot like")
+	}
+	return nil
+}
+
+func doUnlike(cCtx *cli.Context) error {
+	id := cCtx.String("id")
+	if evp := sdk.InputToEventPointer(id); evp == nil {
+		return fmt.Errorf("failed to parse event from '%s'", id)
+	} else {
+		id = evp.ID
+	}
+
+	cfg := cCtx.App.Metadata["config"].(*Config)
+
+	var sk string
+	if _, s, err := nip19.Decode(cfg.PrivateKey); err != nil {
+		return err
+	} else {
+		sk = s.(string)
+	}
+	pub, err := nostr.GetPublicKey(sk)
+	if err != nil {
+		return err
+	}
+	filter := nostr.Filter{
+		Kinds:   []int{nostr.KindReaction},
+		Authors: []string{pub},
+		Tags:    nostr.TagMap{"e": []string{id}},
+	}
+	var likeID string
+	var mu sync.Mutex
+	cfg.Do(Relay{Read: true}, func(relay *nostr.Relay) {
+		evs, err := relay.QuerySync(context.Background(), filter)
+		if err != nil {
+			return
+		}
+		mu.Lock()
+		if likeID == "" {
+			likeID = evs[0].ID
+		}
+		mu.Unlock()
+	})
+
+	var ev nostr.Event
+	ev.Tags = ev.Tags.AppendUnique(nostr.Tag{"e", likeID})
+	ev.CreatedAt = nostr.Now()
+	ev.Kind = nostr.KindDeletion
+	if err := ev.Sign(sk); err != nil {
+		return err
+	}
+
+	var success atomic.Int64
+	cfg.Do(Relay{Write: true}, func(relay *nostr.Relay) {
+		status, err := relay.Publish(context.Background(), ev)
+		if cfg.verbose {
+			fmt.Fprintln(os.Stderr, relay.URL, status, err)
+		}
+		if err == nil && status != nostr.PublishStatusFailed {
+			success.Add(1)
+		}
+	})
+	if success.Load() == 0 {
+		return errors.New("cannot unlike")
 	}
 	return nil
 }
