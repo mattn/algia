@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -34,7 +35,7 @@ func doProfile(cCtx *cli.Context) error {
 			}
 		}
 	} else {
-		if pp := sdk.InputToProfile(user); pp == nil {
+		if pp := sdk.InputToProfile(context.TODO(), user); pp == nil {
 			return fmt.Errorf("failed to parse pubkey from '%s'", user)
 		} else {
 			pub = pp.PublicKey
