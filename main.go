@@ -173,11 +173,17 @@ func (cfg *Config) GetFollows(profile string) (map[string]Profile, error) {
 			}
 
 			for i := 0; i < len(follows); i += 500 {
-				// get follower's desecriptions
+				// Calculate the end index based on the current index and slice length
+				end := i + 500
+				if end > len(follows) {
+					end = len(follows)
+				}
+	
+				// get follower's descriptions
 				cfg.Do(Relay{Read: true}, func(relay *nostr.Relay) {
 					evs, err := relay.QuerySync(context.Background(), nostr.Filter{
 						Kinds:   []int{nostr.KindSetMetadata},
-						Authors: follows[i : i+500],
+						Authors: follows[i:end], // Use the updated end index
 					})
 					if err != nil {
 						return
