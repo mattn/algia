@@ -24,7 +24,7 @@ import (
 
 const name = "algia"
 
-const version = "0.0.39"
+const version = "0.0.40"
 
 var revision = "HEAD"
 
@@ -178,7 +178,7 @@ func (cfg *Config) GetFollows(profile string) (map[string]Profile, error) {
 				if end > len(follows) {
 					end = len(follows)
 				}
-	
+
 				// get follower's descriptions
 				cfg.Do(Relay{Read: true}, func(relay *nostr.Relay) {
 					evs, err := relay.QuerySync(context.Background(), nostr.Filter{
