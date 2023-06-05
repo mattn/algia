@@ -259,6 +259,11 @@ func doPost(cCtx *cli.Context) error {
 	}
 
 	ev.Tags = nostr.Tags{}
+
+	for _, entry := range extractLinks(ev.Content) {
+		ev.Tags = ev.Tags.AppendUnique(nostr.Tag{"r", entry.text})
+	}
+
 	for _, u := range cCtx.StringSlice("emoji") {
 		tok := strings.SplitN(u, "=", 2)
 		if len(tok) != 2 {
@@ -366,6 +371,11 @@ func doReply(cCtx *cli.Context) error {
 	}
 
 	ev.Tags = nostr.Tags{}
+
+	for _, entry := range extractLinks(ev.Content) {
+		ev.Tags = ev.Tags.AppendUnique(nostr.Tag{"r", entry.text})
+	}
+
 	for _, u := range cCtx.StringSlice("emoji") {
 		tok := strings.SplitN(u, "=", 2)
 		if len(tok) != 2 {
