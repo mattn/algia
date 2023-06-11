@@ -4,8 +4,8 @@ go 1.20
 
 require (
 	github.com/fatih/color v1.15.0
-	github.com/nbd-wtf/go-nostr v0.18.3
-	github.com/urfave/cli/v2 v2.25.3
+	github.com/nbd-wtf/go-nostr v0.18.10
+	github.com/urfave/cli/v2 v2.25.5
 )
 
 require (
@@ -23,6 +23,7 @@ require (
 	github.com/mailru/easyjson v0.7.7 // indirect
 	github.com/mattn/go-colorable v0.1.13 // indirect
 	github.com/mattn/go-isatty v0.0.19 // indirect
+	github.com/puzpuzpuz/xsync v1.5.2 // indirect
 	github.com/russross/blackfriday/v2 v2.1.0 // indirect
 	github.com/tidwall/gjson v1.14.4 // indirect
 	github.com/tidwall/match v1.1.1 // indirect

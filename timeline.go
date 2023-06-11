@@ -459,7 +459,7 @@ func doRepost(cCtx *cli.Context) error {
 	}
 
 	ev.CreatedAt = nostr.Now()
-	ev.Kind = nostr.KindBoost
+	ev.Kind = nostr.KindRepost
 	ev.Content = ""
 
 	var first atomic.Bool
@@ -515,7 +515,7 @@ func doUnrepost(cCtx *cli.Context) error {
 		return err
 	}
 	filter := nostr.Filter{
-		Kinds:   []int{nostr.KindBoost},
+		Kinds:   []int{nostr.KindRepost},
 		Authors: []string{pub},
 		Tags:    nostr.TagMap{"e": []string{id}},
 	}
