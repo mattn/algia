@@ -62,6 +62,11 @@ func doProfile(cCtx *cli.Context) error {
 		json.NewEncoder(os.Stdout).Encode(profile)
 		return nil
 	}
+	npub, err := nip19.EncodePublicKey(pub)
+	if err != nil {
+		return err
+	}
+	fmt.Printf("Pubkey: %v\n", npub)
 	fmt.Printf("Name: %v\n", profile.Name)
 	fmt.Printf("DisplayName: %v\n", profile.DisplayName)
 	fmt.Printf("WebSite: %v\n", profile.Website)

@@ -582,7 +582,7 @@ func main() {
 			{
 				Name: "profile",
 				Flags: []cli.Flag{
-					&cli.StringFlag{Name: "u", Value: "", Usage: "user", Required: true},
+					&cli.StringFlag{Name: "u", Value: "", Usage: "user"},
 					&cli.BoolFlag{Name: "json", Usage: "output JSON"},
 				},
 				Usage:     "show profile",
