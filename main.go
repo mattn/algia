@@ -507,6 +507,8 @@ func main() {
 				Aliases: []string{"l"},
 				Flags: []cli.Flag{
 					&cli.StringFlag{Name: "id", Required: true},
+					&cli.StringFlag{Name: "content"},
+					&cli.StringFlag{Name: "emoji"},
 				},
 				Usage:     "like the note",
 				UsageText: "algia like --id [id]",

@@ -591,7 +591,18 @@ func doLike(cCtx *cli.Context) error {
 
 	ev.CreatedAt = nostr.Now()
 	ev.Kind = nostr.KindReaction
-	ev.Content = "+"
+	ev.Content = cCtx.String("content")
+	emoji := cCtx.String("emoji")
+	if emoji != "" {
+		if ev.Content == "" {
+			ev.Content = "like"
+		}
+		ev.Tags = ev.Tags.AppendUnique(nostr.Tag{"emoji", ev.Content, emoji})
+		ev.Content = ":" + ev.Content + ":"
+	}
+	if ev.Content == "" {
+		ev.Content = "+"
+	}
 
 	var first atomic.Bool
 	first.Store(true)
