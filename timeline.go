@@ -113,6 +113,9 @@ func doDMTimeline(cCtx *cli.Context) error {
 		return err
 	}
 
+	if u == "me" {
+		u = npub
+	}
 	var pub string
 	if pp := sdk.InputToProfile(context.TODO(), u); pp == nil {
 		return fmt.Errorf("failed to parse pubkey from '%s'", u)
@@ -148,13 +151,6 @@ func doDMPost(cCtx *cli.Context) error {
 
 	cfg := cCtx.App.Metadata["config"].(*Config)
 
-	var pub string
-	if pp := sdk.InputToProfile(context.TODO(), u); pp == nil {
-		return fmt.Errorf("failed to parse pubkey from '%s'", u)
-	} else {
-		pub = pp.PublicKey
-	}
-
 	var sk string
 	if _, s, err := nip19.Decode(cfg.PrivateKey); err != nil {
 		return err
@@ -186,6 +182,16 @@ func doDMPost(cCtx *cli.Context) error {
 
 	if sensitive != "" {
 		ev.Tags = ev.Tags.AppendUnique(nostr.Tag{"content-warning", sensitive})
+	}
+
+	if u == "me" {
+		u = ev.PubKey
+	}
+	var pub string
+	if pp := sdk.InputToProfile(context.TODO(), u); pp == nil {
+		return fmt.Errorf("failed to parse pubkey from '%s'", u)
+	} else {
+		pub = pp.PublicKey
 	}
 
 	ev.Tags = ev.Tags.AppendUnique(nostr.Tag{"p", pub})
