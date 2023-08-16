@@ -512,7 +512,7 @@ func main() {
 				},
 				Usage:     "like the note",
 				UsageText: "algia like --id [id]",
-				HelpName:  "lite",
+				HelpName:  "like",
 				Action:    doLike,
 			},
 			{
@@ -523,7 +523,7 @@ func main() {
 				},
 				Usage:     "unlike the note",
 				UsageText: "algia unlike --id [id]",
-				HelpName:  "unlite",
+				HelpName:  "unlike",
 				Action:    doUnlike,
 			},
 			{
