@@ -917,6 +917,7 @@ func postMsg(cCtx *cli.Context, msg string) error {
 	ev.Content = msg
 	ev.CreatedAt = nostr.Now()
 	ev.Kind = nostr.KindTextNote
+	ev.Tags = nostr.Tags{}
 	if err := ev.Sign(sk); err != nil {
 		return err
 	}
