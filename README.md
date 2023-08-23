@@ -45,7 +45,7 @@ Minimal configuration. Need to be at ~/.config/algia/config.json
 ```json
 {
   "relays": {
-    "wss://nostr.h3z.jp": {
+    "wss://relay-jp.nostr.wirednet.jp": {
       "read": true,
       "write": true,
       "search": false
