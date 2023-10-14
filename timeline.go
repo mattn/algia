@@ -232,6 +232,7 @@ func doPost(cCtx *cli.Context) error {
 		return cli.ShowSubcommandHelp(cCtx)
 	}
 	sensitive := cCtx.String("sensitive")
+	geohash := cCtx.String("geohash")
 
 	cfg := cCtx.App.Metadata["config"].(*Config)
 
@@ -296,6 +297,10 @@ func doPost(cCtx *cli.Context) error {
 
 	if sensitive != "" {
 		ev.Tags = ev.Tags.AppendUnique(nostr.Tag{"content-warning", sensitive})
+	}
+
+	if geohash != "" {
+		ev.Tags = ev.Tags.AppendUnique(nostr.Tag{"g", geohash})
 	}
 
 	hashtag := nostr.Tag{"h"}
@@ -398,6 +403,10 @@ func doReply(cCtx *cli.Context) error {
 
 	if sensitive != "" {
 		ev.Tags = ev.Tags.AppendUnique(nostr.Tag{"content-warning", sensitive})
+	}
+
+	if geohash != "" {
+		ev.Tags = ev.Tags.AppendUnique(nostr.Tag{"g", geohash})
 	}
 
 	hashtag := nostr.Tag{"h"}
