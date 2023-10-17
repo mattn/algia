@@ -53,14 +53,15 @@ func doProfile(cCtx *cli.Context) error {
 	if len(evs) == 0 {
 		return errors.New("cannot find user")
 	}
+
+	if j {
+		fmt.Fprintln(os.Stdout, evs[0].Content)
+		return nil
+	}
 	var profile Profile
 	err := json.Unmarshal([]byte(evs[0].Content), &profile)
 	if err != nil {
 		return err
-	}
-	if j {
-		json.NewEncoder(os.Stdout).Encode(profile)
-		return nil
 	}
 	npub, err := nip19.EncodePublicKey(pub)
 	if err != nil {
