@@ -18,7 +18,7 @@ import (
 	"github.com/nbd-wtf/go-nostr"
 	"github.com/nbd-wtf/go-nostr/nip04"
 	"github.com/nbd-wtf/go-nostr/nip19"
-	"github.com/nbd-wtf/go-nostr/sdk"
+	"github.com/nbd-wtf/nostr-sdk"
 )
 
 func doDMList(cCtx *cli.Context) error {

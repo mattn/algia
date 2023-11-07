@@ -182,7 +182,7 @@ func (cfg *Config) GetFollows(profile string) (map[string]Profile, error) {
 				// get follower's descriptions
 				cfg.Do(Relay{Read: true}, func(relay *nostr.Relay) {
 					evs, err := relay.QuerySync(context.Background(), nostr.Filter{
-						Kinds:   []int{nostr.KindSetMetadata},
+						Kinds:   []int{nostr.KindProfileMetadata},
 						Authors: follows[i:end], // Use the updated end index
 					})
 					if err != nil {

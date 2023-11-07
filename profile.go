@@ -11,7 +11,7 @@ import (
 
 	"github.com/nbd-wtf/go-nostr"
 	"github.com/nbd-wtf/go-nostr/nip19"
-	"github.com/nbd-wtf/go-nostr/sdk"
+	"github.com/nbd-wtf/nostr-sdk"
 )
 
 func doProfile(cCtx *cli.Context) error {
@@ -44,7 +44,7 @@ func doProfile(cCtx *cli.Context) error {
 
 	// get set-metadata
 	filter := nostr.Filter{
-		Kinds:   []int{nostr.KindSetMetadata},
+		Kinds:   []int{nostr.KindProfileMetadata},
 		Authors: []string{pub},
 		Limit:   1,
 	}
