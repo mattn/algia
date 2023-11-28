@@ -27,18 +27,18 @@ func doProfile(cCtx *cli.Context) error {
 
 	var pub string
 	if user == "" {
-		if _, s, err := nip19.Decode(cfg.PrivateKey); err != nil {
-			return err
-		} else {
+		if _, s, err := nip19.Decode(cfg.PrivateKey); err == nil {
 			if pub, err = nostr.GetPublicKey(s.(string)); err != nil {
 				return err
 			}
+		} else {
+			return err
 		}
 	} else {
-		if pp := sdk.InputToProfile(context.TODO(), user); pp == nil {
-			return fmt.Errorf("failed to parse pubkey from '%s'", user)
-		} else {
+		if pp := sdk.InputToProfile(context.TODO(), user); pp != nil {
 			pub = pp.PublicKey
+		} else {
+			return fmt.Errorf("failed to parse pubkey from '%s'", user)
 		}
 	}
 

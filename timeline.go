@@ -34,10 +34,10 @@ func doDMList(cCtx *cli.Context) error {
 
 	var sk string
 	var npub string
-	if _, s, err := nip19.Decode(cfg.PrivateKey); err != nil {
-		return err
-	} else {
+	if _, s, err := nip19.Decode(cfg.PrivateKey); err == nil {
 		sk = s.(string)
+	} else {
+		return err
 	}
 	if npub, err = nostr.GetPublicKey(sk); err != nil {
 		return err
@@ -104,10 +104,10 @@ func doDMTimeline(cCtx *cli.Context) error {
 	var sk string
 	var npub string
 	var err error
-	if _, s, err := nip19.Decode(cfg.PrivateKey); err != nil {
-		return err
-	} else {
+	if _, s, err := nip19.Decode(cfg.PrivateKey); err == nil {
 		sk = s.(string)
+	} else {
+		return err
 	}
 	if npub, err = nostr.GetPublicKey(sk); err != nil {
 		return err
@@ -117,10 +117,10 @@ func doDMTimeline(cCtx *cli.Context) error {
 		u = npub
 	}
 	var pub string
-	if pp := sdk.InputToProfile(context.TODO(), u); pp == nil {
-		return fmt.Errorf("failed to parse pubkey from '%s'", u)
-	} else {
+	if pp := sdk.InputToProfile(context.TODO(), u); pp != nil {
 		pub = pp.PublicKey
+	} else {
+		return fmt.Errorf("failed to parse pubkey from '%s'", u)
 	}
 	// get followers
 	followsMap, err := cfg.GetFollows(cCtx.String("a"))
@@ -152,10 +152,10 @@ func doDMPost(cCtx *cli.Context) error {
 	cfg := cCtx.App.Metadata["config"].(*Config)
 
 	var sk string
-	if _, s, err := nip19.Decode(cfg.PrivateKey); err != nil {
-		return err
-	} else {
+	if _, s, err := nip19.Decode(cfg.PrivateKey); err == nil {
 		sk = s.(string)
+	} else {
+		return err
 	}
 	ev := nostr.Event{}
 	if npub, err := nostr.GetPublicKey(sk); err == nil {
@@ -188,10 +188,10 @@ func doDMPost(cCtx *cli.Context) error {
 		u = ev.PubKey
 	}
 	var pub string
-	if pp := sdk.InputToProfile(context.TODO(), u); pp == nil {
-		return fmt.Errorf("failed to parse pubkey from '%s'", u)
-	} else {
+	if pp := sdk.InputToProfile(context.TODO(), u); pp != nil {
 		pub = pp.PublicKey
+	} else {
+		return fmt.Errorf("failed to parse pubkey from '%s'", u)
 	}
 
 	ev.Tags = ev.Tags.AppendUnique(nostr.Tag{"p", pub})
@@ -237,10 +237,10 @@ func doPost(cCtx *cli.Context) error {
 	cfg := cCtx.App.Metadata["config"].(*Config)
 
 	var sk string
-	if _, s, err := nip19.Decode(cfg.PrivateKey); err != nil {
-		return err
-	} else {
+	if _, s, err := nip19.Decode(cfg.PrivateKey); err == nil {
 		sk = s.(string)
+	} else {
+		return err
 	}
 	ev := nostr.Event{}
 	if pub, err := nostr.GetPublicKey(sk); err == nil {
@@ -287,10 +287,10 @@ func doPost(cCtx *cli.Context) error {
 
 	for i, u := range cCtx.StringSlice("u") {
 		ev.Content = fmt.Sprintf("#[%d] ", i) + ev.Content
-		if pp := sdk.InputToProfile(context.TODO(), u); pp == nil {
-			return fmt.Errorf("failed to parse pubkey from '%s'", u)
-		} else {
+		if pp := sdk.InputToProfile(context.TODO(), u); pp != nil {
 			u = pp.PublicKey
+		} else {
+			return fmt.Errorf("failed to parse pubkey from '%s'", u)
 		}
 		ev.Tags = ev.Tags.AppendUnique(nostr.Tag{"p", u})
 	}
@@ -346,10 +346,10 @@ func doReply(cCtx *cli.Context) error {
 	cfg := cCtx.App.Metadata["config"].(*Config)
 
 	var sk string
-	if _, s, err := nip19.Decode(cfg.PrivateKey); err != nil {
-		return err
-	} else {
+	if _, s, err := nip19.Decode(cfg.PrivateKey); err == nil {
 		sk = s.(string)
+	} else {
+		return err
 	}
 	ev := nostr.Event{}
 	if pub, err := nostr.GetPublicKey(sk); err == nil {
@@ -361,10 +361,10 @@ func doReply(cCtx *cli.Context) error {
 		return err
 	}
 
-	if evp := sdk.InputToEventPointer(id); evp == nil {
-		return fmt.Errorf("failed to parse event from '%s'", id)
-	} else {
+	if evp := sdk.InputToEventPointer(id); evp != nil {
 		id = evp.ID
+	} else {
+		return fmt.Errorf("failed to parse event from '%s'", id)
 	}
 
 	ev.CreatedAt = nostr.Now()
@@ -449,10 +449,10 @@ func doRepost(cCtx *cli.Context) error {
 
 	ev := nostr.Event{}
 	var sk string
-	if _, s, err := nip19.Decode(cfg.PrivateKey); err != nil {
-		return err
-	} else {
+	if _, s, err := nip19.Decode(cfg.PrivateKey); err == nil {
 		sk = s.(string)
+	} else {
+		return err
 	}
 	if pub, err := nostr.GetPublicKey(sk); err == nil {
 		if _, err := nip19.EncodePublicKey(pub); err != nil {
@@ -463,10 +463,10 @@ func doRepost(cCtx *cli.Context) error {
 		return err
 	}
 
-	if evp := sdk.InputToEventPointer(id); evp == nil {
-		return fmt.Errorf("failed to parse event from '%s'", id)
-	} else {
+	if evp := sdk.InputToEventPointer(id); evp != nil {
 		id = evp.ID
+	} else {
+		return fmt.Errorf("failed to parse event from '%s'", id)
 	}
 	ev.Tags = ev.Tags.AppendUnique(nostr.Tag{"e", id})
 	filter := nostr.Filter{
@@ -512,19 +512,19 @@ func doRepost(cCtx *cli.Context) error {
 
 func doUnrepost(cCtx *cli.Context) error {
 	id := cCtx.String("id")
-	if evp := sdk.InputToEventPointer(id); evp == nil {
-		return fmt.Errorf("failed to parse event from '%s'", id)
-	} else {
+	if evp := sdk.InputToEventPointer(id); evp != nil {
 		id = evp.ID
+	} else {
+		return fmt.Errorf("failed to parse event from '%s'", id)
 	}
 
 	cfg := cCtx.App.Metadata["config"].(*Config)
 
 	var sk string
-	if _, s, err := nip19.Decode(cfg.PrivateKey); err != nil {
-		return err
-	} else {
+	if _, s, err := nip19.Decode(cfg.PrivateKey); err == nil {
 		sk = s.(string)
+	} else {
+		return err
 	}
 	pub, err := nostr.GetPublicKey(sk)
 	if err != nil {
@@ -580,10 +580,10 @@ func doLike(cCtx *cli.Context) error {
 
 	ev := nostr.Event{}
 	var sk string
-	if _, s, err := nip19.Decode(cfg.PrivateKey); err != nil {
-		return err
-	} else {
+	if _, s, err := nip19.Decode(cfg.PrivateKey); err == nil {
 		sk = s.(string)
+	} else {
+		return err
 	}
 	if pub, err := nostr.GetPublicKey(sk); err == nil {
 		if _, err := nip19.EncodePublicKey(pub); err != nil {
@@ -594,10 +594,10 @@ func doLike(cCtx *cli.Context) error {
 		return err
 	}
 
-	if evp := sdk.InputToEventPointer(id); evp == nil {
-		return fmt.Errorf("failed to parse event from '%s'", id)
-	} else {
+	if evp := sdk.InputToEventPointer(id); evp != nil {
 		id = evp.ID
+	} else {
+		return fmt.Errorf("failed to parse event from '%s'", id)
 	}
 	ev.Tags = ev.Tags.AppendUnique(nostr.Tag{"e", id})
 	filter := nostr.Filter{
@@ -654,19 +654,19 @@ func doLike(cCtx *cli.Context) error {
 
 func doUnlike(cCtx *cli.Context) error {
 	id := cCtx.String("id")
-	if evp := sdk.InputToEventPointer(id); evp == nil {
-		return fmt.Errorf("failed to parse event from '%s'", id)
-	} else {
+	if evp := sdk.InputToEventPointer(id); evp != nil {
 		id = evp.ID
+	} else {
+		return fmt.Errorf("failed to parse event from '%s'", id)
 	}
 
 	cfg := cCtx.App.Metadata["config"].(*Config)
 
 	var sk string
-	if _, s, err := nip19.Decode(cfg.PrivateKey); err != nil {
-		return err
-	} else {
+	if _, s, err := nip19.Decode(cfg.PrivateKey); err == nil {
 		sk = s.(string)
+	} else {
+		return err
 	}
 	pub, err := nostr.GetPublicKey(sk)
 	if err != nil {
@@ -722,10 +722,10 @@ func doDelete(cCtx *cli.Context) error {
 
 	ev := nostr.Event{}
 	var sk string
-	if _, s, err := nip19.Decode(cfg.PrivateKey); err != nil {
-		return err
-	} else {
+	if _, s, err := nip19.Decode(cfg.PrivateKey); err == nil {
 		sk = s.(string)
+	} else {
+		return err
 	}
 	if pub, err := nostr.GetPublicKey(sk); err == nil {
 		if _, err := nip19.EncodePublicKey(pub); err != nil {
@@ -736,10 +736,10 @@ func doDelete(cCtx *cli.Context) error {
 		return err
 	}
 
-	if evp := sdk.InputToEventPointer(id); evp == nil {
-		return fmt.Errorf("failed to parse event from '%s'", id)
-	} else {
+	if evp := sdk.InputToEventPointer(id); evp != nil {
 		id = evp.ID
+	} else {
+		return fmt.Errorf("failed to parse event from '%s'", id)
 	}
 	ev.Tags = ev.Tags.AppendUnique(nostr.Tag{"e", id})
 	ev.CreatedAt = nostr.Now()
@@ -820,10 +820,10 @@ func doStream(cCtx *cli.Context) error {
 	defer relay.Close()
 
 	var sk string
-	if _, s, err := nip19.Decode(cfg.PrivateKey); err != nil {
-		return err
-	} else {
+	if _, s, err := nip19.Decode(cfg.PrivateKey); err == nil {
 		sk = s.(string)
+	} else {
+		return err
 	}
 	pub, err := nostr.GetPublicKey(sk)
 	if err != nil {
@@ -915,10 +915,10 @@ func postMsg(cCtx *cli.Context, msg string) error {
 	cfg := cCtx.App.Metadata["config"].(*Config)
 
 	var sk string
-	if _, s, err := nip19.Decode(cfg.PrivateKey); err != nil {
-		return err
-	} else {
+	if _, s, err := nip19.Decode(cfg.PrivateKey); err == nil {
 		sk = s.(string)
+	} else {
+		return err
 	}
 	ev := nostr.Event{}
 	if pub, err := nostr.GetPublicKey(sk); err == nil {

@@ -28,28 +28,34 @@ const version = "0.0.50"
 
 var revision = "HEAD"
 
+// Relay is
 type Relay struct {
 	Read   bool `json:"read"`
 	Write  bool `json:"write"`
 	Search bool `json:"search"`
 }
 
+// Config is
 type Config struct {
 	Relays     map[string]Relay   `json:"relays"`
 	Follows    map[string]Profile `json:"follows"`
 	PrivateKey string             `json:"privatekey"`
 	Updated    time.Time          `json:"updated"`
 	Emojis     map[string]string  `json:"emojis"`
+	NwcURI     string             `json:"nwc-uri"`
+	NwcPub     string             `json:"nwc-pub"`
 	verbose    bool
 	tempRelay  bool
 	sk         string
 }
 
+// Event is
 type Event struct {
 	Event   *nostr.Event `json:"event"`
 	Profile Profile      `json:"profile"`
 }
 
+// Profile is
 type Profile struct {
 	Website     string `json:"website"`
 	Nip05       string `json:"nip05"`
@@ -119,15 +125,16 @@ func loadConfig(profile string) (*Config, error) {
 	return &cfg, nil
 }
 
+// GetFollows is
 func (cfg *Config) GetFollows(profile string) (map[string]Profile, error) {
 	var mu sync.Mutex
 	var pub string
-	if _, s, err := nip19.Decode(cfg.PrivateKey); err != nil {
-		return nil, err
-	} else {
+	if _, s, err := nip19.Decode(cfg.PrivateKey); err == nil {
 		if pub, err = nostr.GetPublicKey(s.(string)); err != nil {
 			return nil, err
 		}
+	} else {
+		return nil, err
 	}
 
 	// get followers
@@ -209,6 +216,7 @@ func (cfg *Config) GetFollows(profile string) (map[string]Profile, error) {
 	return cfg.Follows, nil
 }
 
+// FindRelay is
 func (cfg *Config) FindRelay(r Relay) *nostr.Relay {
 	for k, v := range cfg.Relays {
 		if r.Write && !v.Write {
@@ -223,8 +231,7 @@ func (cfg *Config) FindRelay(r Relay) *nostr.Relay {
 		if cfg.verbose {
 			fmt.Printf("trying relay: %s\n", k)
 		}
-		ctx := context.WithValue(context.Background(), "url", k)
-		relay, err := nostr.RelayConnect(ctx, k)
+		relay, err := nostr.RelayConnect(context.Background(), k)
 		if err != nil {
 			if cfg.verbose {
 				fmt.Fprintln(os.Stderr, err.Error())
@@ -236,6 +243,7 @@ func (cfg *Config) FindRelay(r Relay) *nostr.Relay {
 	return nil
 }
 
+// Do is
 func (cfg *Config) Do(r Relay, f func(*nostr.Relay)) {
 	var wg sync.WaitGroup
 	for k, v := range cfg.Relays {
@@ -251,8 +259,7 @@ func (cfg *Config) Do(r Relay, f func(*nostr.Relay)) {
 		wg.Add(1)
 		go func(wg *sync.WaitGroup, k string, v Relay) {
 			defer wg.Done()
-			ctx := context.WithValue(context.Background(), "url", k)
-			relay, err := nostr.RelayConnect(ctx, k)
+			relay, err := nostr.RelayConnect(context.Background(), k)
 			if err != nil {
 				if cfg.verbose {
 					fmt.Fprintln(os.Stderr, err)
@@ -289,16 +296,17 @@ func (cfg *Config) save(profile string) error {
 	return ioutil.WriteFile(fp, b, 0644)
 }
 
+// Decode is
 func (cfg *Config) Decode(ev *nostr.Event) error {
 	var sk string
 	var pub string
-	if _, s, err := nip19.Decode(cfg.PrivateKey); err != nil {
-		return err
-	} else {
+	if _, s, err := nip19.Decode(cfg.PrivateKey); err == nil {
 		sk = s.(string)
 		if pub, err = nostr.GetPublicKey(s.(string)); err != nil {
 			return err
 		}
+	} else {
+		return err
 	}
 	tag := ev.Tags.GetFirst([]string{"p"})
 	if tag == nil {
@@ -324,6 +332,7 @@ func (cfg *Config) Decode(ev *nostr.Event) error {
 	return nil
 }
 
+// PrintEvents is
 func (cfg *Config) PrintEvents(evs []*nostr.Event, followsMap map[string]Profile, j, extra bool) {
 	if j {
 		if extra {
@@ -365,6 +374,7 @@ func (cfg *Config) PrintEvents(evs []*nostr.Event, followsMap map[string]Profile
 	}
 }
 
+// Events is
 func (cfg *Config) Events(filter nostr.Filter) []*nostr.Event {
 	var m sync.Map
 	cfg.Do(Relay{Read: true}, func(relay *nostr.Relay) {
@@ -607,6 +617,16 @@ func main() {
 				UsageText: "algia puru",
 				HelpName:  "puru",
 				Action:    doPuru,
+			},
+			{
+				Name: "zap",
+				Flags: []cli.Flag{
+					&cli.Uint64Flag{Name: "amount", Usage: "amount for zap", Value: 1},
+				},
+				Usage:     "zap note1",
+				UsageText: "algia zap",
+				HelpName:  "zap",
+				Action:    doZap,
 			},
 			{
 				Name:      "version",
