@@ -165,7 +165,7 @@ func (cfg *Config) ZapInfo(pub string) (*Lnurlp, error) {
 
 	tok := strings.SplitN(profile.Lud16, "@", 2)
 	if err != nil {
-		return nil, err
+		return nil, errors.New("receipt address is not valid")
 	}
 
 	resp, err := http.Get("https://" + tok[1] + "/.well-known/lnurlp/" + tok[0])
