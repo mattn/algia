@@ -184,6 +184,7 @@ func (cfg *Config) ZapInfo(pub string) (*Lnurlp, error) {
 
 func doZap(cCtx *cli.Context) error {
 	amount := cCtx.Uint64("amount")
+	comment := cCtx.String("comment")
 	if cCtx.Args().Len() == 0 {
 		return cli.ShowSubcommandHelp(cCtx)
 	}
@@ -245,7 +246,7 @@ func doZap(cCtx *cli.Context) error {
 
 	zr.Kind = nostr.KindZapRequest // 9734
 	zr.CreatedAt = nostr.Now()
-	zr.Content = ""
+	zr.Content = comment
 	if err := zr.Sign(sk); err != nil {
 		return err
 	}

@@ -622,6 +622,7 @@ func main() {
 				Name: "zap",
 				Flags: []cli.Flag{
 					&cli.Uint64Flag{Name: "amount", Usage: "amount for zap", Value: 1},
+					&cli.StringFlag{Name: "comment", Usage: "comment for zap", Value: ""},
 				},
 				Usage:     "zap note1",
 				UsageText: "algia zap",
