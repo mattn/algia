@@ -6,7 +6,7 @@ nostr CLI client written in Go
 
 ```
 NAME:
-   algia - A new cli application
+   algia - A cli application for nostr
 
 USAGE:
    algia [global options] command [command options] [arguments...]
@@ -16,17 +16,30 @@ DESCRIPTION:
 
 COMMANDS:
    timeline, tl  show timeline
+   stream        show stream
    post, n       post new note
    reply, r      reply to the note
    repost, b     repost the note
+   unrepost, B   unrepost the note
    like, l       like the note
+   unlike, L     unlike the note
    delete, d     delete the note
+   search, s     search notes
+   dm-list       show DM list
+   dm-timeline   show DM timeline
+   dm-post       post new note
+   profile       show profile
+   powa          post ぽわ〜
+   puru          post ぷる
+   zap           zap note1
+   version       show version
    help, h       Shows a list of commands or help for one command
 
 GLOBAL OPTIONS:
-   -a value    profile name
-   -V          verbose (default: false)
-   --help, -h  show help
+   -a value        profile name
+   --relays value  relays
+   -V              verbose (default: false)
+   --help, -h      show help
 ```
 
 ## Installation
@@ -53,14 +66,16 @@ Minimal configuration. Need to be at ~/.config/algia/config.json
   },
   "privatekey": "nsecXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX"
 }
-
 ```
+
+If you want to zap via Nostr Wallet Connect, please add `nwc-pub` and `nwc-uri` which are provided from <https://nwc.getalby.com/apps/new?c=Algia>
 
 ## TODO
 
 * [x] like
 * [x] repost
-* [ ] upload images
+* [x] zap
+* [x] upload images
 
 ## FAQ
 
