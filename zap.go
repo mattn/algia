@@ -139,7 +139,7 @@ func pay(cfg *Config, invoice string) error {
 
 // ZapInfo is
 func (cfg *Config) ZapInfo(pub string) (*Lnurlp, error) {
-	relay := cfg.FindRelay(Relay{Read: true})
+	relay := cfg.FindRelay(context.Background(), Relay{Read: true})
 	if relay == nil {
 		return nil, errors.New("cannot connect relays")
 	}
@@ -165,6 +165,9 @@ func (cfg *Config) ZapInfo(pub string) (*Lnurlp, error) {
 
 	tok := strings.SplitN(profile.Lud16, "@", 2)
 	if err != nil {
+		return nil, err
+	}
+	if len(tok) != 2 {
 		return nil, errors.New("receipt address is not valid")
 	}
 

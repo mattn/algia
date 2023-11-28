@@ -19,7 +19,7 @@ func doProfile(cCtx *cli.Context) error {
 	j := cCtx.Bool("json")
 
 	cfg := cCtx.App.Metadata["config"].(*Config)
-	relay := cfg.FindRelay(Relay{Read: true})
+	relay := cfg.FindRelay(context.Background(), Relay{Read: true})
 	if relay == nil {
 		return errors.New("cannot connect relays")
 	}

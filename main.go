@@ -144,10 +144,10 @@ func (cfg *Config) GetFollows(profile string) (map[string]Profile, error) {
 		mu.Unlock()
 		m := map[string]struct{}{}
 
-		cfg.Do(Relay{Read: true}, func(relay *nostr.Relay) {
-			evs, err := relay.QuerySync(context.Background(), nostr.Filter{Kinds: []int{nostr.KindContactList}, Authors: []string{pub}, Limit: 1})
+		cfg.Do(Relay{Read: true}, func(ctx context.Context, relay *nostr.Relay) bool {
+			evs, err := relay.QuerySync(ctx, nostr.Filter{Kinds: []int{nostr.KindContactList}, Authors: []string{pub}, Limit: 1})
 			if err != nil {
-				return
+				return true
 			}
 			for _, ev := range evs {
 				var rm map[string]Relay
@@ -169,6 +169,7 @@ func (cfg *Config) GetFollows(profile string) (map[string]Profile, error) {
 					}
 				}
 			}
+			return true
 		})
 		if cfg.verbose {
 			fmt.Printf("found %d followers\n", len(m))
@@ -187,13 +188,13 @@ func (cfg *Config) GetFollows(profile string) (map[string]Profile, error) {
 				}
 
 				// get follower's descriptions
-				cfg.Do(Relay{Read: true}, func(relay *nostr.Relay) {
-					evs, err := relay.QuerySync(context.Background(), nostr.Filter{
+				cfg.Do(Relay{Read: true}, func(ctx context.Context, relay *nostr.Relay) bool {
+					evs, err := relay.QuerySync(ctx, nostr.Filter{
 						Kinds:   []int{nostr.KindProfileMetadata},
 						Authors: follows[i:end], // Use the updated end index
 					})
 					if err != nil {
-						return
+						return true
 					}
 					for _, ev := range evs {
 						var profile Profile
@@ -204,6 +205,7 @@ func (cfg *Config) GetFollows(profile string) (map[string]Profile, error) {
 							mu.Unlock()
 						}
 					}
+					return true
 				})
 			}
 		}
@@ -217,7 +219,7 @@ func (cfg *Config) GetFollows(profile string) (map[string]Profile, error) {
 }
 
 // FindRelay is
-func (cfg *Config) FindRelay(r Relay) *nostr.Relay {
+func (cfg *Config) FindRelay(ctx context.Context, r Relay) *nostr.Relay {
 	for k, v := range cfg.Relays {
 		if r.Write && !v.Write {
 			continue
@@ -231,7 +233,7 @@ func (cfg *Config) FindRelay(r Relay) *nostr.Relay {
 		if cfg.verbose {
 			fmt.Printf("trying relay: %s\n", k)
 		}
-		relay, err := nostr.RelayConnect(context.Background(), k)
+		relay, err := nostr.RelayConnect(ctx, k)
 		if err != nil {
 			if cfg.verbose {
 				fmt.Fprintln(os.Stderr, err.Error())
@@ -244,8 +246,9 @@ func (cfg *Config) FindRelay(r Relay) *nostr.Relay {
 }
 
 // Do is
-func (cfg *Config) Do(r Relay, f func(*nostr.Relay)) {
+func (cfg *Config) Do(r Relay, f func(context.Context, *nostr.Relay) bool) {
 	var wg sync.WaitGroup
+	ctx := context.Background()
 	for k, v := range cfg.Relays {
 		if r.Write && !v.Write {
 			continue
@@ -259,14 +262,16 @@ func (cfg *Config) Do(r Relay, f func(*nostr.Relay)) {
 		wg.Add(1)
 		go func(wg *sync.WaitGroup, k string, v Relay) {
 			defer wg.Done()
-			relay, err := nostr.RelayConnect(context.Background(), k)
+			relay, err := nostr.RelayConnect(ctx, k)
 			if err != nil {
 				if cfg.verbose {
 					fmt.Fprintln(os.Stderr, err)
 				}
 				return
 			}
-			f(relay)
+			if !f(ctx, relay) {
+				ctx.Done()
+			}
 			relay.Close()
 		}(&wg, k, v)
 	}
@@ -376,11 +381,19 @@ func (cfg *Config) PrintEvents(evs []*nostr.Event, followsMap map[string]Profile
 
 // Events is
 func (cfg *Config) Events(filter nostr.Filter) []*nostr.Event {
+	var mu sync.Mutex
+	found := false
 	var m sync.Map
-	cfg.Do(Relay{Read: true}, func(relay *nostr.Relay) {
-		evs, err := relay.QuerySync(context.Background(), filter)
+	cfg.Do(Relay{Read: true}, func(ctx context.Context, relay *nostr.Relay) bool {
+		mu.Lock()
+		if found {
+			mu.Unlock()
+			return false
+		}
+		mu.Unlock()
+		evs, err := relay.QuerySync(ctx, filter)
 		if err != nil {
-			return
+			return true
 		}
 		for _, ev := range evs {
 			if _, ok := m.Load(ev.ID); !ok {
@@ -390,8 +403,16 @@ func (cfg *Config) Events(filter nostr.Filter) []*nostr.Event {
 					}
 				}
 				m.LoadOrStore(ev.ID, ev)
+				if len(filter.IDs) == 1 {
+					mu.Lock()
+					found = true
+					ctx.Done()
+					mu.Unlock()
+					break
+				}
 			}
 		}
+		return true
 	})
 
 	keys := []string{}

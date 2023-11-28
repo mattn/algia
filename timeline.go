@@ -211,14 +211,15 @@ func doDMPost(cCtx *cli.Context) error {
 	}
 
 	var success atomic.Int64
-	cfg.Do(Relay{Write: true}, func(relay *nostr.Relay) {
-		status, err := relay.Publish(context.Background(), ev)
+	cfg.Do(Relay{Write: true}, func(ctx context.Context, relay *nostr.Relay) bool {
+		status, err := relay.Publish(ctx, ev)
 		if cfg.verbose {
 			fmt.Fprintln(os.Stderr, relay.URL, status, err)
 		}
 		if err == nil && status != nostr.PublishStatusFailed {
 			success.Add(1)
 		}
+		return true
 	})
 	if success.Load() == 0 {
 		return errors.New("cannot post")
@@ -318,14 +319,15 @@ func doPost(cCtx *cli.Context) error {
 	}
 
 	var success atomic.Int64
-	cfg.Do(Relay{Write: true}, func(relay *nostr.Relay) {
-		status, err := relay.Publish(context.Background(), ev)
+	cfg.Do(Relay{Write: true}, func(ctx context.Context, relay *nostr.Relay) bool {
+		status, err := relay.Publish(ctx, ev)
 		if cfg.verbose {
 			fmt.Fprintln(os.Stderr, relay.URL, status, err)
 		}
 		if err == nil && status != nostr.PublishStatusFailed {
 			success.Add(1)
 		}
+		return true
 	})
 	if success.Load() == 0 {
 		return errors.New("cannot post")
@@ -419,22 +421,23 @@ func doReply(cCtx *cli.Context) error {
 	}
 
 	var success atomic.Int64
-	cfg.Do(Relay{Write: true}, func(relay *nostr.Relay) {
+	cfg.Do(Relay{Write: true}, func(ctx context.Context, relay *nostr.Relay) bool {
 		if !quote {
 			ev.Tags = ev.Tags.AppendUnique(nostr.Tag{"e", id, relay.URL, "reply"})
 		} else {
 			ev.Tags = ev.Tags.AppendUnique(nostr.Tag{"e", id, relay.URL, "mention"})
 		}
 		if err := ev.Sign(sk); err != nil {
-			return
+			return true
 		}
-		status, err := relay.Publish(context.Background(), ev)
+		status, err := relay.Publish(ctx, ev)
 		if cfg.verbose {
 			fmt.Fprintln(os.Stderr, relay.URL, status, err)
 		}
 		if err == nil && status != nostr.PublishStatusFailed {
 			success.Add(1)
 		}
+		return true
 	})
 	if success.Load() == 0 {
 		return errors.New("cannot reply")
@@ -482,27 +485,28 @@ func doRepost(cCtx *cli.Context) error {
 	first.Store(true)
 
 	var success atomic.Int64
-	cfg.Do(Relay{Write: true}, func(relay *nostr.Relay) {
+	cfg.Do(Relay{Write: true}, func(ctx context.Context, relay *nostr.Relay) bool {
 		if first.Load() {
-			evs, err := relay.QuerySync(context.Background(), filter)
+			evs, err := relay.QuerySync(ctx, filter)
 			if err != nil {
-				return
+				return true
 			}
 			for _, tmp := range evs {
 				ev.Tags = ev.Tags.AppendUnique(nostr.Tag{"p", tmp.ID})
 			}
 			first.Store(false)
 			if err := ev.Sign(sk); err != nil {
-				return
+				return true
 			}
 		}
-		status, err := relay.Publish(context.Background(), ev)
+		status, err := relay.Publish(ctx, ev)
 		if cfg.verbose {
 			fmt.Fprintln(os.Stderr, relay.URL, status, err)
 		}
 		if err == nil && status != nostr.PublishStatusFailed {
 			success.Add(1)
 		}
+		return true
 	})
 	if success.Load() == 0 {
 		return errors.New("cannot repost")
@@ -537,16 +541,17 @@ func doUnrepost(cCtx *cli.Context) error {
 	}
 	var repostID string
 	var mu sync.Mutex
-	cfg.Do(Relay{Read: true}, func(relay *nostr.Relay) {
-		evs, err := relay.QuerySync(context.Background(), filter)
+	cfg.Do(Relay{Read: true}, func(ctx context.Context, relay *nostr.Relay) bool {
+		evs, err := relay.QuerySync(ctx, filter)
 		if err != nil {
-			return
+			return true
 		}
 		mu.Lock()
 		if len(evs) > 0 && repostID == "" {
 			repostID = evs[0].ID
 		}
 		mu.Unlock()
+		return true
 	})
 
 	var ev nostr.Event
@@ -558,14 +563,15 @@ func doUnrepost(cCtx *cli.Context) error {
 	}
 
 	var success atomic.Int64
-	cfg.Do(Relay{Write: true}, func(relay *nostr.Relay) {
-		status, err := relay.Publish(context.Background(), ev)
+	cfg.Do(Relay{Write: true}, func(ctx context.Context, relay *nostr.Relay) bool {
+		status, err := relay.Publish(ctx, ev)
 		if cfg.verbose {
 			fmt.Fprintln(os.Stderr, relay.URL, status, err)
 		}
 		if err == nil && status != nostr.PublishStatusFailed {
 			success.Add(1)
 		}
+		return true
 	})
 	if success.Load() == 0 {
 		return errors.New("cannot unrepost")
@@ -624,27 +630,29 @@ func doLike(cCtx *cli.Context) error {
 	first.Store(true)
 
 	var success atomic.Int64
-	cfg.Do(Relay{Write: true}, func(relay *nostr.Relay) {
+	cfg.Do(Relay{Write: true}, func(ctx context.Context, relay *nostr.Relay) bool {
 		if first.Load() {
-			evs, err := relay.QuerySync(context.Background(), filter)
+			evs, err := relay.QuerySync(ctx, filter)
 			if err != nil {
-				return
+				return true
 			}
 			for _, tmp := range evs {
 				ev.Tags = ev.Tags.AppendUnique(nostr.Tag{"p", tmp.ID})
 			}
 			first.Store(false)
 			if err := ev.Sign(sk); err != nil {
-				return
+				return true
 			}
+			return true
 		}
-		status, err := relay.Publish(context.Background(), ev)
+		status, err := relay.Publish(ctx, ev)
 		if cfg.verbose {
 			fmt.Fprintln(os.Stderr, relay.URL, status, err)
 		}
 		if err == nil && status != nostr.PublishStatusFailed {
 			success.Add(1)
 		}
+		return true
 	})
 	if success.Load() == 0 {
 		return errors.New("cannot like")
@@ -679,16 +687,17 @@ func doUnlike(cCtx *cli.Context) error {
 	}
 	var likeID string
 	var mu sync.Mutex
-	cfg.Do(Relay{Read: true}, func(relay *nostr.Relay) {
-		evs, err := relay.QuerySync(context.Background(), filter)
+	cfg.Do(Relay{Read: true}, func(ctx context.Context, relay *nostr.Relay) bool {
+		evs, err := relay.QuerySync(ctx, filter)
 		if err != nil {
-			return
+			return true
 		}
 		mu.Lock()
 		if len(evs) > 0 && likeID == "" {
 			likeID = evs[0].ID
 		}
 		mu.Unlock()
+		return true
 	})
 
 	var ev nostr.Event
@@ -700,14 +709,15 @@ func doUnlike(cCtx *cli.Context) error {
 	}
 
 	var success atomic.Int64
-	cfg.Do(Relay{Write: true}, func(relay *nostr.Relay) {
-		status, err := relay.Publish(context.Background(), ev)
+	cfg.Do(Relay{Write: true}, func(ctx context.Context, relay *nostr.Relay) bool {
+		status, err := relay.Publish(ctx, ev)
 		if cfg.verbose {
 			fmt.Fprintln(os.Stderr, relay.URL, status, err)
 		}
 		if err == nil && status != nostr.PublishStatusFailed {
 			success.Add(1)
 		}
+		return true
 	})
 	if success.Load() == 0 {
 		return errors.New("cannot unlike")
@@ -749,14 +759,15 @@ func doDelete(cCtx *cli.Context) error {
 	}
 
 	var success atomic.Int64
-	cfg.Do(Relay{Write: true}, func(relay *nostr.Relay) {
-		status, err := relay.Publish(context.Background(), ev)
+	cfg.Do(Relay{Write: true}, func(ctx context.Context, relay *nostr.Relay) bool {
+		status, err := relay.Publish(ctx, ev)
 		if cfg.verbose {
 			fmt.Fprintln(os.Stderr, relay.URL, status, err)
 		}
 		if err == nil && status != nostr.PublishStatusFailed {
 			success.Add(1)
 		}
+		return true
 	})
 	if success.Load() == 0 {
 		return errors.New("cannot delete")
@@ -813,7 +824,7 @@ func doStream(cCtx *cli.Context) error {
 
 	cfg := cCtx.App.Metadata["config"].(*Config)
 
-	relay := cfg.FindRelay(Relay{Read: true})
+	relay := cfg.FindRelay(context.Background(), Relay{Read: true})
 	if relay == nil {
 		return errors.New("cannot connect relays")
 	}
@@ -871,8 +882,9 @@ func doStream(cCtx *cli.Context) error {
 				if err := evr.Sign(sk); err != nil {
 					return err
 				}
-				cfg.Do(Relay{Write: true}, func(relay *nostr.Relay) {
-					relay.Publish(context.Background(), evr)
+				cfg.Do(Relay{Write: true}, func(ctx context.Context, relay *nostr.Relay) bool {
+					relay.Publish(ctx, evr)
+					return true
 				})
 			}
 		} else {
@@ -939,14 +951,15 @@ func postMsg(cCtx *cli.Context, msg string) error {
 	}
 
 	var success atomic.Int64
-	cfg.Do(Relay{Write: true}, func(relay *nostr.Relay) {
-		status, err := relay.Publish(context.Background(), ev)
+	cfg.Do(Relay{Write: true}, func(ctx context.Context, relay *nostr.Relay) bool {
+		status, err := relay.Publish(ctx, ev)
 		if cfg.verbose {
 			fmt.Fprintln(os.Stderr, relay.URL, status, err)
 		}
 		if err == nil && status != nostr.PublishStatusFailed {
 			success.Add(1)
 		}
+		return true
 	})
 	if success.Load() == 0 {
 		return errors.New("cannot post")
