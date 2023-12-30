@@ -39,7 +39,8 @@ type Invoice struct {
 type PayRequest struct {
 	Method string `json:"method"`
 	Params struct {
-		Invoice string `json:"invoice"`
+		Invoice string   `json:"invoice"`
+		Routes  []string `json:"routes:"`
 	} `json:"params"`
 }
 
@@ -115,7 +116,7 @@ func pay(cfg *Config, invoice string) error {
 		return err
 	}
 
-	_, err = relay.Publish(context.Background(), ev)
+	err = relay.Publish(context.Background(), ev)
 	if err != nil {
 		return err
 	}
@@ -126,7 +127,7 @@ func pay(cfg *Config, invoice string) error {
 		return err
 	}
 	var resp PayResponse
-	err = json.Unmarshal([]byte(content), resp)
+	err = json.Unmarshal([]byte(content), &resp)
 	if err != nil {
 		return err
 	}
@@ -290,6 +291,7 @@ func doZap(cCtx *cli.Context) error {
 			WhiteChar:  qrterminal.WHITE,
 			BlackChar:  qrterminal.BLACK,
 			QuietZone:  2,
+			WithSixel:  true,
 		}
 		fmt.Println("lightning:" + iv.PR)
 		qrterminal.GenerateWithConfig("lightning:"+iv.PR, config)

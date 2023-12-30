@@ -212,11 +212,10 @@ func doDMPost(cCtx *cli.Context) error {
 
 	var success atomic.Int64
 	cfg.Do(Relay{Write: true}, func(ctx context.Context, relay *nostr.Relay) bool {
-		status, err := relay.Publish(ctx, ev)
-		if cfg.verbose {
-			fmt.Fprintln(os.Stderr, relay.URL, status, err)
-		}
-		if err == nil && status != nostr.PublishStatusFailed {
+		err := relay.Publish(ctx, ev)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, relay.URL, err)
+		} else {
 			success.Add(1)
 		}
 		return true
@@ -320,11 +319,10 @@ func doPost(cCtx *cli.Context) error {
 
 	var success atomic.Int64
 	cfg.Do(Relay{Write: true}, func(ctx context.Context, relay *nostr.Relay) bool {
-		status, err := relay.Publish(ctx, ev)
-		if cfg.verbose {
-			fmt.Fprintln(os.Stderr, relay.URL, status, err)
-		}
-		if err == nil && status != nostr.PublishStatusFailed {
+		err := relay.Publish(ctx, ev)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, relay.URL, err)
+		} else {
 			success.Add(1)
 		}
 		return true
@@ -430,11 +428,10 @@ func doReply(cCtx *cli.Context) error {
 		if err := ev.Sign(sk); err != nil {
 			return true
 		}
-		status, err := relay.Publish(ctx, ev)
-		if cfg.verbose {
-			fmt.Fprintln(os.Stderr, relay.URL, status, err)
-		}
-		if err == nil && status != nostr.PublishStatusFailed {
+		err := relay.Publish(ctx, ev)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, relay.URL, err)
+		} else {
 			success.Add(1)
 		}
 		return true
@@ -499,11 +496,10 @@ func doRepost(cCtx *cli.Context) error {
 				return true
 			}
 		}
-		status, err := relay.Publish(ctx, ev)
-		if cfg.verbose {
-			fmt.Fprintln(os.Stderr, relay.URL, status, err)
-		}
-		if err == nil && status != nostr.PublishStatusFailed {
+		err := relay.Publish(ctx, ev)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, relay.URL, err)
+		} else {
 			success.Add(1)
 		}
 		return true
@@ -564,11 +560,10 @@ func doUnrepost(cCtx *cli.Context) error {
 
 	var success atomic.Int64
 	cfg.Do(Relay{Write: true}, func(ctx context.Context, relay *nostr.Relay) bool {
-		status, err := relay.Publish(ctx, ev)
-		if cfg.verbose {
-			fmt.Fprintln(os.Stderr, relay.URL, status, err)
-		}
-		if err == nil && status != nostr.PublishStatusFailed {
+		err := relay.Publish(ctx, ev)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, relay.URL, err)
+		} else {
 			success.Add(1)
 		}
 		return true
@@ -645,11 +640,10 @@ func doLike(cCtx *cli.Context) error {
 			}
 			return true
 		}
-		status, err := relay.Publish(ctx, ev)
-		if cfg.verbose {
-			fmt.Fprintln(os.Stderr, relay.URL, status, err)
-		}
-		if err == nil && status != nostr.PublishStatusFailed {
+		err := relay.Publish(ctx, ev)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, relay.URL, err)
+		} else {
 			success.Add(1)
 		}
 		return true
@@ -710,11 +704,10 @@ func doUnlike(cCtx *cli.Context) error {
 
 	var success atomic.Int64
 	cfg.Do(Relay{Write: true}, func(ctx context.Context, relay *nostr.Relay) bool {
-		status, err := relay.Publish(ctx, ev)
-		if cfg.verbose {
-			fmt.Fprintln(os.Stderr, relay.URL, status, err)
-		}
-		if err == nil && status != nostr.PublishStatusFailed {
+		err := relay.Publish(ctx, ev)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, relay.URL, err)
+		} else {
 			success.Add(1)
 		}
 		return true
@@ -760,11 +753,10 @@ func doDelete(cCtx *cli.Context) error {
 
 	var success atomic.Int64
 	cfg.Do(Relay{Write: true}, func(ctx context.Context, relay *nostr.Relay) bool {
-		status, err := relay.Publish(ctx, ev)
-		if cfg.verbose {
-			fmt.Fprintln(os.Stderr, relay.URL, status, err)
-		}
-		if err == nil && status != nostr.PublishStatusFailed {
+		err := relay.Publish(ctx, ev)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, relay.URL, err)
+		} else {
 			success.Add(1)
 		}
 		return true
@@ -952,11 +944,10 @@ func postMsg(cCtx *cli.Context, msg string) error {
 
 	var success atomic.Int64
 	cfg.Do(Relay{Write: true}, func(ctx context.Context, relay *nostr.Relay) bool {
-		status, err := relay.Publish(ctx, ev)
-		if cfg.verbose {
-			fmt.Fprintln(os.Stderr, relay.URL, status, err)
-		}
-		if err == nil && status != nostr.PublishStatusFailed {
+		err := relay.Publish(ctx, ev)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, relay.URL, err)
+		} else {
 			success.Add(1)
 		}
 		return true
