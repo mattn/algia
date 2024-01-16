@@ -233,6 +233,12 @@ func doPost(cCtx *cli.Context) error {
 	}
 	sensitive := cCtx.String("sensitive")
 	geohash := cCtx.String("geohash")
+	articleName := cCtx.String("article-name")
+	articleTitle := cCtx.String("article-title")
+	articleSummary := cCtx.String("article-summary")
+	if articleName != "" && articleTitle == "" {
+		return cli.ShowSubcommandHelp(cCtx)
+	}
 
 	cfg := cCtx.App.Metadata["config"].(*Config)
 
@@ -312,7 +318,16 @@ func doPost(cCtx *cli.Context) error {
 	}
 
 	ev.CreatedAt = nostr.Now()
-	ev.Kind = nostr.KindTextNote
+	if articleName != "" {
+		ev.Kind = nostr.KindArticle
+		ev.Tags = ev.Tags.AppendUnique(nostr.Tag{"d", articleName})
+		ev.Tags = ev.Tags.AppendUnique(nostr.Tag{"title", articleTitle})
+		ev.Tags = ev.Tags.AppendUnique(nostr.Tag{"summary", articleSummary})
+		ev.Tags = ev.Tags.AppendUnique(nostr.Tag{"published_at", fmt.Sprint(nostr.Now())})
+		ev.Tags = ev.Tags.AppendUnique(nostr.Tag{"a", fmt.Sprintf("%d:%s:%s", ev.Kind, ev.PubKey, articleName), "wss://yabu.me"})
+	} else {
+		ev.Kind = nostr.KindTextNote
+	}
 	if err := ev.Sign(sk); err != nil {
 		return err
 	}
@@ -329,6 +344,11 @@ func doPost(cCtx *cli.Context) error {
 	})
 	if success.Load() == 0 {
 		return errors.New("cannot post")
+	}
+	if cfg.verbose {
+		if id, err := nip19.EncodeNote(ev.ID); err == nil {
+			fmt.Println(id)
+		}
 	}
 	return nil
 }
