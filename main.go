@@ -612,7 +612,7 @@ func main() {
 					&cli.BoolFlag{Name: "stdin"},
 					&cli.StringFlag{Name: "sensitive"},
 				},
-				Usage:     "post new note",
+				Usage:     "post new DM note",
 				UsageText: "algia post [note text]",
 				HelpName:  "post",
 				ArgsUsage: "[note text]",
