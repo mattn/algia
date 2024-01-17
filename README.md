@@ -9,7 +9,7 @@ NAME:
    algia - A cli application for nostr
 
 USAGE:
-   algia [global options] command [command options] [arguments...]
+   algia [global options] command [command options] 
 
 DESCRIPTION:
    A cli application for nostr
@@ -31,7 +31,7 @@ COMMANDS:
    profile       show profile
    powa          post ぽわ〜
    puru          post ぷる
-   zap           zap note1
+   zap           zap [note|npub|nevent]
    version       show version
    help, h       Shows a list of commands or help for one command
 

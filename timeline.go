@@ -910,6 +910,7 @@ func doTimeline(cCtx *cli.Context) error {
 	n := cCtx.Int("n")
 	j := cCtx.Bool("json")
 	extra := cCtx.Bool("extra")
+	article := cCtx.Bool("article")
 
 	cfg := cCtx.App.Metadata["config"].(*Config)
 
@@ -923,9 +924,13 @@ func doTimeline(cCtx *cli.Context) error {
 		follows = append(follows, k)
 	}
 
+	kind := nostr.KindTextNote
+	if article {
+		kind = nostr.KindArticle
+	}
 	// get timeline
 	filter := nostr.Filter{
-		Kinds:   []int{nostr.KindTextNote},
+		Kinds:   []int{kind},
 		Authors: follows,
 		Limit:   n,
 	}

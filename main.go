@@ -465,6 +465,7 @@ func main() {
 					&cli.IntFlag{Name: "n", Value: 30, Usage: "number of items"},
 					&cli.BoolFlag{Name: "json", Usage: "output JSON"},
 					&cli.BoolFlag{Name: "extra", Usage: "extra JSON"},
+					&cli.BoolFlag{Name: "article", Usage: "show articles"},
 				},
 				Action: doTimeline,
 			},
