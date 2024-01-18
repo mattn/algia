@@ -884,21 +884,22 @@ func doStream(cCtx *cli.Context) error {
 				continue
 			}
 			json.NewEncoder(os.Stdout).Encode(ev)
-			if reply != "" {
-				var evr nostr.Event
-				evr.PubKey = pub
-				evr.Content = reply
-				evr.Tags = evr.Tags.AppendUnique(nostr.Tag{"e", ev.ID, "", "reply"})
-				evr.CreatedAt = nostr.Now()
-				evr.Kind = nostr.KindTextNote
-				if err := evr.Sign(sk); err != nil {
-					return err
-				}
-				cfg.Do(Relay{Write: true}, func(ctx context.Context, relay *nostr.Relay) bool {
-					relay.Publish(ctx, evr)
-					return true
-				})
+			if reply == "" {
+				continue
 			}
+			var evr nostr.Event
+			evr.PubKey = pub
+			evr.Content = reply
+			evr.Tags = evr.Tags.AppendUnique(nostr.Tag{"e", ev.ID, "", "reply"})
+			evr.CreatedAt = nostr.Now()
+			evr.Kind = nostr.KindTextNote
+			if err := evr.Sign(sk); err != nil {
+				return err
+			}
+			cfg.Do(Relay{Write: true}, func(ctx context.Context, relay *nostr.Relay) bool {
+				relay.Publish(ctx, evr)
+				return true
+			})
 		} else {
 			json.NewEncoder(os.Stdout).Encode(ev)
 		}
