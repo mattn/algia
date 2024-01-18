@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io/ioutil"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -105,7 +104,7 @@ func loadConfig(profile string) (*Config, error) {
 	}
 	os.MkdirAll(filepath.Dir(fp), 0700)
 
-	b, err := ioutil.ReadFile(fp)
+	b, err := os.ReadFile(fp)
 	if err != nil {
 		return nil, err
 	}
@@ -298,7 +297,7 @@ func (cfg *Config) save(profile string) error {
 	if err != nil {
 		return err
 	}
-	return ioutil.WriteFile(fp, b, 0644)
+	return os.WriteFile(fp, b, 0644)
 }
 
 // Decode is
