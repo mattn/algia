@@ -313,16 +313,16 @@ func (cfg *Config) Decode(ev *nostr.Event) error {
 		return err
 	}
 	tag := ev.Tags.GetFirst([]string{"p"})
-	if tag == nil {
-		return errors.New("is not author")
-	}
-	sp := tag.Value()
-	if sp != pub {
-		if ev.PubKey != pub {
-			return errors.New("is not author")
+	sp := pub
+	if tag != nil {
+		sp = tag.Value()
+		if sp != pub {
+			if ev.PubKey != pub {
+				return errors.New("is not author")
+			}
+		} else {
+			sp = ev.PubKey
 		}
-	} else {
-		sp = ev.PubKey
 	}
 	ss, err := nip04.ComputeSharedSecret(sp, sk)
 	if err != nil {
@@ -396,7 +396,7 @@ func (cfg *Config) Events(filter nostr.Filter) []*nostr.Event {
 		}
 		for _, ev := range evs {
 			if _, ok := m.Load(ev.ID); !ok {
-				if ev.Kind == nostr.KindEncryptedDirectMessage {
+				if ev.Kind == nostr.KindEncryptedDirectMessage || ev.Kind == nostr.KindCategorizedBookmarksList {
 					if err := cfg.Decode(ev); err != nil {
 						continue
 					}
@@ -587,22 +587,26 @@ func main() {
 				Action:    doSearch,
 			},
 			{
-				Name:  "dm-list",
-				Usage: "show DM list",
+				Name: "dm-list",
 				Flags: []cli.Flag{
 					&cli.BoolFlag{Name: "json", Usage: "output JSON"},
 				},
-				Action: doDMList,
+				Usage:     "show DM list",
+				UsageText: "algia dm-list",
+				HelpName:  "dm-list",
+				Action:    doDMList,
 			},
 			{
-				Name:  "dm-timeline",
-				Usage: "show DM timeline",
+				Name: "dm-timeline",
 				Flags: []cli.Flag{
 					&cli.StringFlag{Name: "u", Value: "", Usage: "DM user", Required: true},
 					&cli.BoolFlag{Name: "json", Usage: "output JSON"},
 					&cli.BoolFlag{Name: "extra", Usage: "extra JSON"},
 				},
-				Action: doDMTimeline,
+				Usage:     "show DM timeline",
+				UsageText: "algia dm-timeline",
+				HelpName:  "dm-timeline",
+				Action:    doDMTimeline,
 			},
 			{
 				Name: "dm-post",
@@ -616,6 +620,24 @@ func main() {
 				HelpName:  "post",
 				ArgsUsage: "[note text]",
 				Action:    doDMPost,
+			},
+			{
+				Name: "bm-list",
+				Flags: []cli.Flag{
+					&cli.BoolFlag{Name: "json", Usage: "output JSON"},
+				},
+				Usage:     "show bookmarks",
+				UsageText: "algia bm-list",
+				HelpName:  "bm-list",
+				Action:    doBMList,
+			},
+			{
+				Name:      "bm-post",
+				Usage:     "post bookmark",
+				UsageText: "algia bm-post [note]",
+				HelpName:  "bm-post",
+				ArgsUsage: "[note]",
+				Action:    doBMPost,
 			},
 			{
 				Name: "profile",
