@@ -648,7 +648,7 @@ func main() {
 					&cli.Uint64Flag{Name: "amount", Usage: "amount for zap", Value: 1},
 					&cli.StringFlag{Name: "comment", Usage: "comment for zap", Value: ""},
 				},
-				Usage:     "zap [note|npub|nevent]",
+				Usage:     "zap something",
 				UsageText: "algia zap [note|npub|nevent]",
 				HelpName:  "zap",
 				Action:    doZap,
