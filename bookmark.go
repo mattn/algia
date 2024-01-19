@@ -1,20 +1,12 @@
 package main
 
 import (
-	"context"
 	"errors"
-	"fmt"
-	"io"
-	"os"
-	"strings"
-	"sync/atomic"
 
 	"github.com/urfave/cli/v2"
 
 	"github.com/nbd-wtf/go-nostr"
-	"github.com/nbd-wtf/go-nostr/nip04"
 	"github.com/nbd-wtf/go-nostr/nip19"
-	"github.com/nbd-wtf/nostr-sdk"
 )
 
 func doBMList(cCtx *cli.Context) error {
