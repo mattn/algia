@@ -701,6 +701,7 @@ func doStream(cCtx *cli.Context) error {
 }
 
 func doTimeline(cCtx *cli.Context) error {
+	u := cCtx.String("u")
 	n := cCtx.Int("n")
 	j := cCtx.Bool("json")
 	extra := cCtx.Bool("extra")
@@ -714,8 +715,17 @@ func doTimeline(cCtx *cli.Context) error {
 		return err
 	}
 	var follows []string
-	for k := range followsMap {
-		follows = append(follows, k)
+	if u == "" {
+		for k := range followsMap {
+			follows = append(follows, k)
+		}
+	} else {
+		if pp := sdk.InputToProfile(context.TODO(), u); pp != nil {
+			u = pp.PublicKey
+		} else {
+			return fmt.Errorf("failed to parse pubkey from '%s'", u)
+		}
+		follows = []string{u}
 	}
 
 	kind := nostr.KindTextNote

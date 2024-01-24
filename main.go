@@ -461,6 +461,7 @@ func main() {
 				Aliases: []string{"tl"},
 				Usage:   "show timeline",
 				Flags: []cli.Flag{
+					&cli.StringFlag{Name: "u", Usage: "user"},
 					&cli.IntFlag{Name: "n", Value: 30, Usage: "number of items"},
 					&cli.BoolFlag{Name: "json", Usage: "output JSON"},
 					&cli.BoolFlag{Name: "extra", Usage: "extra JSON"},
