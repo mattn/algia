@@ -372,7 +372,7 @@ func (cfg *Config) PrintEvents(evs []*nostr.Event, followsMap map[string]Profile
 		color.Set(color.Reset)
 		fmt.Print(": ")
 		color.Set(color.FgHiBlue)
-		fmt.Println(ev.PubKey)
+		fmt.Println(ev.ID)
 		color.Set(color.Reset)
 		fmt.Println(ev.Content)
 	}
