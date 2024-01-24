@@ -367,12 +367,20 @@ func (cfg *Config) PrintEvents(evs []*nostr.Event, followsMap map[string]Profile
 			fmt.Print(profile.Name)
 		} else {
 			color.Set(color.FgRed)
-			fmt.Print(ev.PubKey)
+			if pk, err := nip19.EncodePublicKey(ev.PubKey); err == nil {
+				fmt.Print(pk)
+			} else {
+				fmt.Print(ev.PubKey)
+			}
 		}
 		color.Set(color.Reset)
 		fmt.Print(": ")
 		color.Set(color.FgHiBlue)
-		fmt.Println(ev.ID)
+		if ni, err := nip19.EncodeNote(ev.ID); err == nil {
+			fmt.Println(ni)
+		} else {
+			fmt.Println(ev.ID)
+		}
 		color.Set(color.Reset)
 		fmt.Println(ev.Content)
 	}
