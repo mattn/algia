@@ -657,7 +657,13 @@ func doStream(cCtx *cli.Context) error {
 			follows = append(follows, k)
 		}
 	} else {
-		follows = authors
+		for _, author := range authors {
+			if pp := sdk.InputToProfile(context.TODO(), author); pp != nil {
+				follows = append(follows, pp.PublicKey)
+			} else {
+				return fmt.Errorf("failed to parse pubkey from '%s'", author)
+			}
+		}
 	}
 
 	since := nostr.Now()
