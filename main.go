@@ -481,7 +481,7 @@ func main() {
 				Name:  "stream",
 				Usage: "show stream",
 				Flags: []cli.Flag{
-					&cli.StringFlag{Name: "author"},
+					&cli.StringSliceFlag{Name: "author"},
 					&cli.IntSliceFlag{Name: "kind", Value: cli.NewIntSlice(nostr.KindTextNote)},
 					&cli.BoolFlag{Name: "follow"},
 					&cli.StringFlag{Name: "pattern"},
