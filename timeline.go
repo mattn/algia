@@ -611,6 +611,72 @@ func doSearch(cCtx *cli.Context) error {
 	return nil
 }
 
+func doBroadcast(cCtx *cli.Context) error {
+	id := cCtx.String("id")
+	from := cCtx.String("relay")
+	evp := sdk.InputToEventPointer(id)
+	if evp == nil {
+		return fmt.Errorf("failed to parse event from '%s'", id)
+	}
+
+	cfg := cCtx.App.Metadata["config"].(*Config)
+
+	filter := nostr.Filter{
+		IDs: []string{evp.ID},
+	}
+	var ev *nostr.Event
+	var mu sync.Mutex
+
+	if from != "" {
+		ctx := context.Background()
+		relay, err := nostr.RelayConnect(ctx, from)
+		if err != nil {
+			return err
+		}
+		defer relay.Close()
+		evs, err := relay.QuerySync(ctx, filter)
+		if err != nil {
+			return err
+		}
+		if len(evs) > 0 {
+			ev = evs[0]
+		}
+	} else {
+		cfg.Do(Relay{Read: true}, func(ctx context.Context, relay *nostr.Relay) bool {
+			if relay.URL == from {
+				return true
+			}
+			evs, err := relay.QuerySync(ctx, filter)
+			if err != nil {
+				return true
+			}
+			mu.Lock()
+			ev = evs[0]
+			mu.Unlock()
+			return false
+		})
+	}
+
+	if ev == nil {
+		return fmt.Errorf("failed to get event '%s'", evp.ID)
+	}
+
+	var success atomic.Int64
+	cfg.Do(Relay{Write: true}, func(ctx context.Context, relay *nostr.Relay) bool {
+		err := relay.Publish(ctx, *ev)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, relay.URL, err)
+		} else {
+			success.Add(1)
+		}
+		return true
+	})
+	if success.Load() == 0 {
+		return errors.New("cannot broadcast")
+	}
+	return nil
+}
+
 func doStream(cCtx *cli.Context) error {
 	kinds := cCtx.IntSlice("kind")
 	authors := cCtx.StringSlice("author")

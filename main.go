@@ -596,6 +596,17 @@ func main() {
 				Action:    doSearch,
 			},
 			{
+				Name: "broadcast",
+				Flags: []cli.Flag{
+					&cli.StringFlag{Name: "id", Required: true},
+					&cli.StringFlag{Name: "relay", Required: false},
+				},
+				Usage:     "broadcast the note",
+				UsageText: "algia broadcast --id [id]",
+				HelpName:  "broadcast",
+				Action:    doBroadcast,
+			},
+			{
 				Name: "dm-list",
 				Flags: []cli.Flag{
 					&cli.BoolFlag{Name: "json", Usage: "output JSON"},
