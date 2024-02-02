@@ -614,16 +614,26 @@ func doSearch(cCtx *cli.Context) error {
 func doBroadcast(cCtx *cli.Context) error {
 	id := cCtx.String("id")
 	from := cCtx.String("relay")
-	evp := sdk.InputToEventPointer(id)
-	if evp == nil {
-		return fmt.Errorf("failed to parse event from '%s'", id)
+
+	var filter nostr.Filter
+
+	if evp := sdk.InputToEventPointer(id); evp == nil {
+		epp := sdk.InputToProfile(context.Background(), id)
+		if epp == nil {
+			return fmt.Errorf("failed to parse note/npub from '%s'", id)
+		}
+		filter = nostr.Filter{
+			Kinds:   []int{nostr.KindProfileMetadata},
+			Authors: []string{epp.PublicKey},
+		}
+	} else {
+		filter = nostr.Filter{
+			IDs: []string{evp.ID},
+		}
 	}
 
 	cfg := cCtx.App.Metadata["config"].(*Config)
 
-	filter := nostr.Filter{
-		IDs: []string{evp.ID},
-	}
 	var ev *nostr.Event
 	var mu sync.Mutex
 
@@ -650,15 +660,17 @@ func doBroadcast(cCtx *cli.Context) error {
 			if err != nil {
 				return true
 			}
-			mu.Lock()
-			ev = evs[0]
-			mu.Unlock()
+			if len(evs) > 0 {
+				mu.Lock()
+				ev = evs[0]
+				mu.Unlock()
+			}
 			return false
 		})
 	}
 
 	if ev == nil {
-		return fmt.Errorf("failed to get event '%s'", evp.ID)
+		return fmt.Errorf("failed to get event '%s'", id)
 	}
 
 	var success atomic.Int64
