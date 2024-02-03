@@ -38,7 +38,7 @@ func doProfile(cCtx *cli.Context) error {
 		if pp := sdk.InputToProfile(context.TODO(), user); pp != nil {
 			pub = pp.PublicKey
 		} else {
-			return fmt.Errorf("failed to parse pubkey from '%s'", user)
+			pub = user
 		}
 	}
 
