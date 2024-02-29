@@ -102,9 +102,9 @@ func doPost(cCtx *cli.Context) error {
 		ev.Tags = ev.Tags.AppendUnique(nostr.Tag{"g", geohash})
 	}
 
-	hashtag := nostr.Tag{"h"}
-	for _, m := range regexp.MustCompile(`#[a-zA-Z0-9]+`).FindAllStringSubmatchIndex(ev.Content, -1) {
-		hashtag = append(hashtag, ev.Content[m[0]+1:m[1]])
+	hashtag := nostr.Tag{"t"}
+	for _, m := range extractTags(ev.Content) {
+		hashtag = append(hashtag, m.text)
 	}
 	if len(hashtag) > 1 {
 		ev.Tags = ev.Tags.AppendUnique(hashtag)
@@ -223,9 +223,9 @@ func doReply(cCtx *cli.Context) error {
 		ev.Tags = ev.Tags.AppendUnique(nostr.Tag{"g", geohash})
 	}
 
-	hashtag := nostr.Tag{"h"}
-	for _, m := range regexp.MustCompile(`#[a-zA-Z0-9]+`).FindAllStringSubmatchIndex(ev.Content, -1) {
-		hashtag = append(hashtag, ev.Content[m[0]+1:m[1]])
+	hashtag := nostr.Tag{"t"}
+	for _, m := range extractTags(ev.Content) {
+		hashtag = append(hashtag, m.text)
 	}
 	if len(hashtag) > 1 {
 		ev.Tags = ev.Tags.AppendUnique(hashtag)
