@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"strings"
 	"sync/atomic"
 
 	"github.com/urfave/cli/v2"
@@ -119,19 +118,16 @@ func doUpdateProfile(cCtx *cli.Context) error {
 	}
 
 	for _, arg := range cCtx.Args().Slice() {
-		tok := strings.SplitN(arg, "=", 2)
-		switch len(tok) {
-		case 1:
-			delete(profile, tok[0])
-		case 2:
-			if tok[0] == "bot" {
-				if tok[1] == "true" {
-					profile[tok[0]] = true
-				} else {
-					profile[tok[0]] = false
-				}
+		var set map[string]any
+		err := json.Unmarshal([]byte(arg), &set)
+		if err != nil {
+			return err
+		}
+		for k, v := range set {
+			if v == nil {
+				delete(profile, k)
 			} else {
-				profile[tok[0]] = tok[1]
+				profile[k] = v
 			}
 		}
 	}
