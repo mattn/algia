@@ -63,6 +63,7 @@ type Profile struct {
 	DisplayName string `json:"display_name"`
 	About       string `json:"about"`
 	Name        string `json:"name"`
+	Bot         bool   `json:"bot"`
 }
 
 func configDir() (string, error) {
@@ -664,11 +665,19 @@ func main() {
 				Flags: []cli.Flag{
 					&cli.StringFlag{Name: "u", Value: "", Usage: "user"},
 					&cli.BoolFlag{Name: "json", Usage: "output JSON"},
+					&cli.StringSliceFlag{Name: "set", Usage: "set attributes"},
 				},
 				Usage:     "show profile",
 				UsageText: "algia profile",
 				HelpName:  "profile",
 				Action:    doProfile,
+			},
+			{
+				Name:      "update-profile",
+				Usage:     "update profile",
+				UsageText: "algia update-profile",
+				HelpName:  "update-profile",
+				Action:    doUpdateProfile,
 			},
 			{
 				Name:      "powa",
