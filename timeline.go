@@ -102,13 +102,9 @@ func doPost(cCtx *cli.Context) error {
 		ev.Tags = ev.Tags.AppendUnique(nostr.Tag{"g", geohash})
 	}
 
-	hashtag := nostr.Tag{"t"}
-	for _, m := range extractTags(ev.Content) {
-		hashtag = append(hashtag, m.text)
-	}
-	if len(hashtag) > 1 {
-		ev.Tags = ev.Tags.AppendUnique(hashtag)
-	}
+	for _, entry := range extractTags(ev.Content) {
+		ev.Tags = ev.Tags.AppendUnique(nostr.Tag{"t", entry.text})
+        }
 
 	ev.CreatedAt = nostr.Now()
 	if articleName != "" {
@@ -223,13 +219,9 @@ func doReply(cCtx *cli.Context) error {
 		ev.Tags = ev.Tags.AppendUnique(nostr.Tag{"g", geohash})
 	}
 
-	hashtag := nostr.Tag{"t"}
-	for _, m := range extractTags(ev.Content) {
-		hashtag = append(hashtag, m.text)
-	}
-	if len(hashtag) > 1 {
-		ev.Tags = ev.Tags.AppendUnique(hashtag)
-	}
+	for _, entry := range extractTags(ev.Content) {
+		ev.Tags = ev.Tags.AppendUnique(nostr.Tag{"t", entry.text})
+        }
 
 	var success atomic.Int64
 	cfg.Do(Relay{Write: true}, func(ctx context.Context, relay *nostr.Relay) bool {
