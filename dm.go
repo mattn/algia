@@ -62,12 +62,17 @@ func doDMList(cCtx *cli.Context) error {
 		if profile, ok := followsMap[p]; ok {
 			m[p] = struct{}{}
 			p, _ = nip19.EncodePublicKey(p)
+			name := profile.DisplayName
+			if name == "" {
+				name = profile.Name
+			}
 			users = append(users, entry{
-				name:   profile.DisplayName,
+				name:   name,
 				pubkey: p,
 			})
 		} else {
 			m[p] = struct{}{}
+			p, _ = nip19.EncodePublicKey(p)
 			users = append(users, entry{
 				name:   p,
 				pubkey: p,
