@@ -87,12 +87,12 @@ func doDMList(cCtx *cli.Context) error {
 	}
 
 	for _, user := range users {
-		color.Set(color.FgHiRed)
-		fmt.Print(user.name)
+		color.Set(color.FgHiBlue)
+		fmt.Print(user.pubkey)
 		color.Set(color.Reset)
 		fmt.Print(": ")
-		color.Set(color.FgHiBlue)
-		fmt.Println(user.pubkey)
+		color.Set(color.FgHiRed)
+		fmt.Println(user.name)
 		color.Set(color.Reset)
 	}
 	return nil
