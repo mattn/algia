@@ -45,12 +45,14 @@ func doDMList(cCtx *cli.Context) error {
 	filter := nostr.Filter{
 		Kinds:   []int{nostr.KindEncryptedDirectMessage},
 		Authors: []string{npub},
+		Limit:   9999,
 	}
 
 	evs := cfg.Events(filter)
+
 	type entry struct {
-		name   string
-		pubkey string
+		Name   string `json:"name"`
+		Pubkey string `json:"pubkey"`
 	}
 	users := []entry{}
 	m := map[string]struct{}{}
@@ -67,18 +69,19 @@ func doDMList(cCtx *cli.Context) error {
 				name = profile.Name
 			}
 			users = append(users, entry{
-				name:   name,
-				pubkey: p,
+				Name:   name,
+				Pubkey: p,
 			})
 		} else {
 			m[p] = struct{}{}
 			p, _ = nip19.EncodePublicKey(p)
 			users = append(users, entry{
-				name:   p,
-				pubkey: p,
+				Name:   p,
+				Pubkey: p,
 			})
 		}
 	}
+
 	if j {
 		for _, user := range users {
 			json.NewEncoder(os.Stdout).Encode(user)
@@ -88,11 +91,11 @@ func doDMList(cCtx *cli.Context) error {
 
 	for _, user := range users {
 		color.Set(color.FgHiBlue)
-		fmt.Print(user.pubkey)
+		fmt.Print(user.Pubkey)
 		color.Set(color.Reset)
 		fmt.Print(": ")
 		color.Set(color.FgHiRed)
-		fmt.Println(user.name)
+		fmt.Println(user.Name)
 		color.Set(color.Reset)
 	}
 	return nil
