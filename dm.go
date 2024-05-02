@@ -67,6 +67,7 @@ func doDMList(cCtx *cli.Context) error {
 				pubkey: p,
 			})
 		} else {
+			m[p] = struct{}{}
 			users = append(users, entry{
 				name:   p,
 				pubkey: p,
