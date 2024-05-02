@@ -196,7 +196,7 @@ func doDMPost(cCtx *cli.Context) error {
 	ev.CreatedAt = nostr.Now()
 	ev.Kind = nostr.KindEncryptedDirectMessage
 
-	ss, err := nip04.ComputeSharedSecret(ev.PubKey, sk)
+	ss, err := nip04.ComputeSharedSecret(pub, sk)
 	if err != nil {
 		return err
 	}
