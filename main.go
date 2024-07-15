@@ -145,23 +145,43 @@ func (cfg *Config) GetFollows(profile string) (map[string]Profile, error) {
 		m := map[string]struct{}{}
 
 		cfg.Do(Relay{Read: true}, func(ctx context.Context, relay *nostr.Relay) bool {
-			evs, err := relay.QuerySync(ctx, nostr.Filter{Kinds: []int{nostr.KindContactList}, Authors: []string{pub}, Limit: 1})
-			if err != nil {
-				return true
-			}
-			for _, ev := range evs {
-				var rm map[string]Relay
-				if cfg.tempRelay == false {
-					if err := json.Unmarshal([]byte(ev.Content), &rm); err == nil {
-						for k, v1 := range cfg.Relays {
-							if v2, ok := rm[k]; ok {
-								v2.Search = v1.Search
+			if cfg.tempRelay == false {
+				evs, _ := relay.QuerySync(ctx, nostr.Filter{Kinds: []int{nostr.KindRelayListMetadata}, Authors: []string{pub}, Limit: 1})
+				if len(evs) > 0 {
+					rm := map[string]Relay{}
+					for _, r := range evs[0].Tags.GetAll([]string{"r"}) {
+						if len(r) == 2 {
+							rm[r[1]] = Relay{
+								Read:  true,
+								Write: true,
+							}
+						} else if len(r) == 3 {
+							switch r[2] {
+							case "read":
+								rm[r[1]] = Relay{
+									Read:  true,
+									Write: false,
+								}
+							case "write":
+								rm[r[1]] = Relay{
+									Read:  true,
+									Write: true,
+								}
 							}
 						}
-						cfg.Relays = rm
 					}
+					for k, v1 := range cfg.Relays {
+						if v2, ok := rm[k]; ok {
+							v2.Search = v1.Search
+						}
+					}
+					cfg.Relays = rm
 				}
-				for _, tag := range ev.Tags {
+			}
+
+			evs, _ := relay.QuerySync(ctx, nostr.Filter{Kinds: []int{nostr.KindContactList}, Authors: []string{pub}, Limit: 1})
+			if len(evs) > 0 {
+				for _, tag := range evs[0].Tags {
 					if len(tag) >= 2 && tag[0] == "p" {
 						mu.Lock()
 						m[tag[1]] = struct{}{}
