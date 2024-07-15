@@ -409,10 +409,14 @@ func (cfg *Config) PrintEvents(evs []*nostr.Event, followsMap map[string]Profile
 
 // Events is
 func (cfg *Config) Events(filter nostr.Filter) []*nostr.Event {
+	rf := Relay{Read: true}
+	if filter.Search != "" {
+		rf.Search = true
+	}
 	var mu sync.Mutex
 	found := false
 	var m sync.Map
-	cfg.Do(Relay{Read: true}, func(ctx context.Context, relay *nostr.Relay) bool {
+	cfg.Do(rf, func(ctx context.Context, relay *nostr.Relay) bool {
 		mu.Lock()
 		if found {
 			mu.Unlock()
