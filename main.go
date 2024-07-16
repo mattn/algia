@@ -732,7 +732,7 @@ func main() {
 				Name: "event",
 				Flags: []cli.Flag{
 					&cli.BoolFlag{Name: "stdin"},
-					&cli.IntFlag{Name: "kind", Value: 1},
+					&cli.IntFlag{Name: "kind", Required: true},
 					&cli.StringFlag{Name: "content"},
 					&cli.StringSliceFlag{Name: "tag"},
 				},
