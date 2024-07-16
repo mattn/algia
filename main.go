@@ -729,6 +729,19 @@ func main() {
 				Action:    doZap,
 			},
 			{
+				Name: "event",
+				Flags: []cli.Flag{
+					&cli.BoolFlag{Name: "stdin"},
+					&cli.IntFlag{Name: "kind", Value: 1},
+					&cli.StringFlag{Name: "content"},
+					&cli.StringSliceFlag{Name: "tag"},
+				},
+				Usage:     "send event",
+				UsageText: "algia event ...",
+				HelpName:  "event",
+				Action:    doEvent,
+			},
+			{
 				Name:      "version",
 				Usage:     "show version",
 				UsageText: "algia version",

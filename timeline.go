@@ -146,6 +146,80 @@ func doPost(cCtx *cli.Context) error {
 	return nil
 }
 
+func doEvent(cCtx *cli.Context) error {
+	stdin := cCtx.Bool("stdin")
+	kind := cCtx.Int("kind")
+	content := cCtx.String("content")
+	tags := cCtx.StringSlice("tag")
+
+	cfg := cCtx.App.Metadata["config"].(*Config)
+
+	var sk string
+	if _, s, err := nip19.Decode(cfg.PrivateKey); err == nil {
+		sk = s.(string)
+	} else {
+		return err
+	}
+	ev := nostr.Event{}
+	if pub, err := nostr.GetPublicKey(sk); err == nil {
+		if _, err := nip19.EncodePublicKey(pub); err != nil {
+			return err
+		}
+		ev.PubKey = pub
+	} else {
+		return err
+	}
+
+	if stdin {
+		b, err := ioutil.ReadAll(os.Stdin)
+		if err != nil {
+			return err
+		}
+		ev.Content = string(b)
+	} else {
+		ev.Content = content
+	}
+
+	ev.Tags = nostr.Tags{}
+
+	for _, tag := range tags {
+		name, value, found := strings.Cut(tag, "=")
+		tag := []string{name}
+		if found {
+			// tags may also contain extra elements separated with a ";"
+			tag = append(tag, strings.Split(value, ";")...)
+		}
+		ev.Tags = ev.Tags.AppendUnique(tag)
+	}
+
+	ev.Kind = kind
+	ev.CreatedAt = nostr.Now()
+
+	if err := ev.Sign(sk); err != nil {
+		return err
+	}
+
+	var success atomic.Int64
+	cfg.Do(Relay{Write: true}, func(ctx context.Context, relay *nostr.Relay) bool {
+		err := relay.Publish(ctx, ev)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, relay.URL, err)
+		} else {
+			success.Add(1)
+		}
+		return true
+	})
+	if success.Load() == 0 {
+		return errors.New("cannot post")
+	}
+	if cfg.verbose {
+		if id, err := nip19.EncodeNote(ev.ID); err == nil {
+			fmt.Println(id)
+		}
+	}
+	return nil
+}
+
 func doReply(cCtx *cli.Context) error {
 	stdin := cCtx.Bool("stdin")
 	id := cCtx.String("id")
