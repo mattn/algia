@@ -769,6 +769,7 @@ func doStream(cCtx *cli.Context) error {
 	f := cCtx.Bool("follow")
 	pattern := cCtx.String("pattern")
 	reply := cCtx.String("reply")
+	tags := cCtx.StringSlice("tag")
 
 	var re *regexp.Regexp
 	if pattern != "" {
@@ -823,27 +824,44 @@ func doStream(cCtx *cli.Context) error {
 		Kinds:   kinds,
 		Authors: follows,
 		Since:   &since,
+		Tags:    nostr.TagMap{},
 	}
 
+	for _, tag := range tags {
+		name, value, found := strings.Cut(tag, "=")
+		tag := []string{}
+		if found {
+			// tags may also contain extra elements separated with a ";"
+			tag = append(tag, strings.Split(value, ";")...)
+		}
+		filter.Tags[name] = tag
+	}
 	sub, err := relay.Subscribe(context.Background(), nostr.Filters{filter})
 	if err != nil {
 		return err
 	}
-	for ev := range sub.Events {
-		if ev.Kind == nostr.KindTextNote {
-			if re != nil && !re.MatchString(ev.Content) {
-				continue
-			}
+
+	if reply == "" {
+		for ev := range sub.Events {
 			json.NewEncoder(os.Stdout).Encode(ev)
-			if reply == "" {
+		}
+	} else {
+		for ev := range sub.Events {
+			if re != nil && !re.MatchString(ev.Content) {
 				continue
 			}
 			var evr nostr.Event
 			evr.PubKey = pub
 			evr.Content = reply
+			evr.Tags = nostr.Tags{}
+			for _, tag := range ev.Tags {
+				if len(tag) > 0 && tag[0] != "e" && tag[0] != "p" {
+					evr.Tags = evr.Tags.AppendUnique(tag)
+				}
+			}
 			evr.Tags = evr.Tags.AppendUnique(nostr.Tag{"e", ev.ID, "", "reply"})
 			evr.CreatedAt = nostr.Now()
-			evr.Kind = nostr.KindTextNote
+			evr.Kind = ev.Kind
 			if err := evr.Sign(sk); err != nil {
 				return err
 			}
@@ -851,10 +869,9 @@ func doStream(cCtx *cli.Context) error {
 				relay.Publish(ctx, evr)
 				return true
 			})
-		} else {
-			json.NewEncoder(os.Stdout).Encode(ev)
 		}
 	}
+
 	return nil
 }
 

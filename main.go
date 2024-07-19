@@ -511,6 +511,7 @@ func main() {
 					&cli.BoolFlag{Name: "follow"},
 					&cli.StringFlag{Name: "pattern"},
 					&cli.StringFlag{Name: "reply"},
+					&cli.StringSliceFlag{Name: "tag"},
 				},
 				Action: doStream,
 			},
