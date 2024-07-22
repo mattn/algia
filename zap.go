@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -172,6 +173,7 @@ func (cfg *Config) ZapInfo(pub string) (*Lnurlp, error) {
 		return nil, errors.New("receipt address is not valid")
 	}
 
+	http.DefaultTransport.(*http.Transport).TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
 	resp, err := http.Get("https://" + tok[1] + "/.well-known/lnurlp/" + tok[0])
 	if err != nil {
 		return nil, err
@@ -236,7 +238,10 @@ func doZap(cCtx *cli.Context) error {
 		case "note":
 			evs := cfg.Events(nostr.Filter{IDs: []string{s.(string)}})
 			if len(evs) != 0 {
-				receipt = evs[0].PubKey
+				receipt, err = nip19.EncodePublicKey(evs[0].PubKey)
+				if err != nil {
+					return errors.New("couldn't encode public key to nip19")
+				}
 				zr.Tags = zr.Tags.AppendUnique(nostr.Tag{"p", receipt})
 			}
 			zr.Tags = zr.Tags.AppendUnique(nostr.Tag{"e", s.(string)})
