@@ -229,21 +229,28 @@ func doZap(cCtx *cli.Context) error {
 		}
 	}
 	zr.Tags = zr.Tags.AppendUnique(relays)
-	if prefix, s, err := nip19.Decode(cCtx.Args().First()); err == nil {
+	eventId := cCtx.Args().First()
+	if prefix, s, err := nip19.Decode(eventId); err == nil {
 		switch prefix {
 		case "nevent":
 			receipt = s.(nostr.EventPointer).Author
 			zr.Tags = zr.Tags.AppendUnique(nostr.Tag{"p", receipt})
 			zr.Tags = zr.Tags.AppendUnique(nostr.Tag{"e", s.(nostr.EventPointer).ID})
 		case "note":
-			evs := cfg.Events(nostr.Filter{IDs: []string{s.(string)}})
-			if len(evs) != 0 {
-				receipt, err = nip19.EncodePublicKey(evs[0].PubKey)
-				if err != nil {
-					return errors.New("couldn't encode public key to nip19")
+			var noteEvent *nostr.Event
+			allEvs := cfg.Events(nostr.Filter{})
+			for _, ev := range allEvs {
+				if ev.ID == s {
+					noteEvent = ev
 				}
-				zr.Tags = zr.Tags.AppendUnique(nostr.Tag{"p", receipt})
 			}
+			println("got note");
+			println(noteEvent);
+
+			receipt = noteEvent.PubKey
+			println(receipt)
+			zr.Tags = zr.Tags.AppendUnique(nostr.Tag{"p", receipt})
+
 			zr.Tags = zr.Tags.AppendUnique(nostr.Tag{"e", s.(string)})
 		case "npub":
 			receipt = s.(string)
