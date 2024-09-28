@@ -165,6 +165,8 @@ func doDMPost(cCtx *cli.Context) error {
 		return err
 	}
 	ev := nostr.Event{}
+	clientTag(&ev)
+
 	if npub, err := nostr.GetPublicKey(sk); err == nil {
 		if _, err := nip19.EncodePublicKey(npub); err != nil {
 			return err

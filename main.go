@@ -479,6 +479,10 @@ func doVersion(cCtx *cli.Context) error {
 	return nil
 }
 
+func clientTag(ev *nostr.Event) {
+	ev.Tags = ev.Tags.AppendUnique(nostr.Tag{"client", "algia", "31990:2c7cc62a697ea3a7826521f3fd34f0cb273693cbe5e9310f35449f43622a5cdc:1727520612646", "wss://nostr.compile-error.net"})
+}
+
 func main() {
 	app := &cli.App{
 		Usage:       "A cli application for nostr",

@@ -65,6 +65,7 @@ func doPost(cCtx *cli.Context) error {
 	}
 
 	ev.Tags = nostr.Tags{}
+	clientTag(&ev)
 
 	for _, entry := range extractLinks(ev.Content) {
 		ev.Tags = ev.Tags.AppendUnique(nostr.Tag{"r", entry.text})
@@ -181,6 +182,7 @@ func doEvent(cCtx *cli.Context) error {
 	}
 
 	ev.Tags = nostr.Tags{}
+	clientTag(&ev)
 
 	for _, tag := range tags {
 		name, value, found := strings.Cut(tag, "=")
@@ -270,6 +272,7 @@ func doReply(cCtx *cli.Context) error {
 	}
 
 	ev.Tags = nostr.Tags{}
+	clientTag(&ev)
 
 	for _, entry := range extractLinks(ev.Content) {
 		ev.Tags = ev.Tags.AppendUnique(nostr.Tag{"r", entry.text})
@@ -854,6 +857,7 @@ func doStream(cCtx *cli.Context) error {
 			evr.PubKey = pub
 			evr.Content = reply
 			evr.Tags = nostr.Tags{}
+			clientTag(&evr)
 			for _, tag := range ev.Tags {
 				if len(tag) > 0 && tag[0] != "e" && tag[0] != "p" {
 					evr.Tags = evr.Tags.AppendUnique(tag)
@@ -942,6 +946,7 @@ func postMsg(cCtx *cli.Context, msg string) error {
 	ev.CreatedAt = nostr.Now()
 	ev.Kind = nostr.KindTextNote
 	ev.Tags = nostr.Tags{}
+	clientTag(&ev)
 	if err := ev.Sign(sk); err != nil {
 		return err
 	}

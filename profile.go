@@ -144,6 +144,7 @@ func doUpdateProfile(cCtx *cli.Context) error {
 		return err
 	}
 
+	clientTag(ev)
 	ev.CreatedAt = nostr.Now()
 	if err := ev.Sign(sk); err != nil {
 		return err

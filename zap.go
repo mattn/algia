@@ -209,6 +209,7 @@ func doZap(cCtx *cli.Context) error {
 	receipt := ""
 	zr := nostr.Event{}
 	zr.Tags = nostr.Tags{}
+	clientTag(&zr)
 
 	if pub, err := nostr.GetPublicKey(sk); err == nil {
 		if _, err := nip19.EncodePublicKey(pub); err != nil {
