@@ -179,7 +179,7 @@ func (cfg *Config) GetFollows(profile string) (map[string]Profile, error) {
 				}
 			}
 
-			evs, _ := relay.QuerySync(ctx, nostr.Filter{Kinds: []int{nostr.KindContactList}, Authors: []string{pub}, Limit: 1})
+			evs, _ := relay.QuerySync(ctx, nostr.Filter{Kinds: []int{nostr.KindFollowList}, Authors: []string{pub}, Limit: 1})
 			if len(evs) > 0 {
 				for _, tag := range evs[0].Tags {
 					if len(tag) >= 2 && tag[0] == "p" {
