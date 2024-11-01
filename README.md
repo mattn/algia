@@ -68,7 +68,7 @@ Minimal configuration. Need to be at ~/.config/algia/config.json
 }
 ```
 
-If you want to zap via Nostr Wallet Connect, please add `nwc-pub` and `nwc-uri` which are provided from <https://nwc.getalby.com/apps/new?c=Algia>
+If you want to zap via Nostr Wallet Connect, please add `nwc-uri` which are provided from <https://nwc.getalby.com/apps/new?c=Algia>
 
 ```json
 {
@@ -76,8 +76,7 @@ If you want to zap via Nostr Wallet Connect, please add `nwc-pub` and `nwc-uri` 
    ...
   },
   "privatekey": "nsecXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX",
-  "nwc-uri": "nostr+walletconnect://xxxxx",
-  "nwc-pub": "xxxxxxxxxxxxxxxxxxxxxxx"
+  "nwc-uri": "nostr+walletconnect://xxxxx"
 }
 ```
 
