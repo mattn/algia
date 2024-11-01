@@ -42,7 +42,6 @@ type Config struct {
 	Updated    time.Time          `json:"updated"`
 	Emojis     map[string]string  `json:"emojis"`
 	NwcURI     string             `json:"nwc-uri"`
-	NwcPub     string             `json:"nwc-pub"`
 	verbose    bool
 	tempRelay  bool
 	sk         string
