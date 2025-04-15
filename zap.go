@@ -187,20 +187,27 @@ func (cfg *Config) ZapInfo(pub string) (*Lnurlp, error) {
 }
 
 func doZap(cCtx *cli.Context) error {
-	amount := cCtx.Uint64("amount")
-	comment := cCtx.String("comment")
 	if cCtx.Args().Len() == 0 {
 		return cli.ShowSubcommandHelp(cCtx)
 	}
+	return callZap(&zapArg{
+		cfg:     cCtx.App.Metadata["config"].(*Config),
+		amount:  cCtx.Uint64("amount"),
+		comment: cCtx.String("comment"),
+		id:      cCtx.Args().First(),
+	})
+}
 
-	if cCtx.Args().Len() == 0 {
-		return cli.ShowSubcommandHelp(cCtx)
-	}
+type zapArg struct {
+	cfg     *Config
+	amount  uint64
+	comment string
+	id      string
+}
 
-	cfg := cCtx.App.Metadata["config"].(*Config)
-
+func callZap(arg *zapArg) error {
 	var sk string
-	if _, s, err := nip19.Decode(cfg.PrivateKey); err == nil {
+	if _, s, err := nip19.Decode(arg.cfg.PrivateKey); err == nil {
 		sk = s.(string)
 	} else {
 		return err
@@ -220,22 +227,22 @@ func doZap(cCtx *cli.Context) error {
 		return err
 	}
 
-	zr.Tags = zr.Tags.AppendUnique(nostr.Tag{"amount", fmt.Sprint(amount * 1000)})
+	zr.Tags = zr.Tags.AppendUnique(nostr.Tag{"amount", fmt.Sprint(arg.amount * 1000)})
 	relays := nostr.Tag{"relays"}
-	for k, v := range cfg.Relays {
+	for k, v := range arg.cfg.Relays {
 		if v.Write {
 			relays = append(relays, k)
 		}
 	}
 	zr.Tags = zr.Tags.AppendUnique(relays)
-	if prefix, s, err := nip19.Decode(cCtx.Args().First()); err == nil {
+	if prefix, s, err := nip19.Decode(arg.id); err == nil {
 		switch prefix {
 		case "nevent":
 			receipt = s.(nostr.EventPointer).Author
 			zr.Tags = zr.Tags.AppendUnique(nostr.Tag{"p", receipt})
 			zr.Tags = zr.Tags.AppendUnique(nostr.Tag{"e", s.(nostr.EventPointer).ID})
 		case "note":
-			evs := cfg.Events(nostr.Filter{IDs: []string{s.(string)}})
+			evs := arg.cfg.Events(nostr.Filter{IDs: []string{s.(string)}})
 			if len(evs) != 0 {
 				receipt = evs[0].PubKey
 				zr.Tags = zr.Tags.AppendUnique(nostr.Tag{"p", receipt})
@@ -251,7 +258,7 @@ func doZap(cCtx *cli.Context) error {
 
 	zr.Kind = nostr.KindZapRequest // 9734
 	zr.CreatedAt = nostr.Now()
-	zr.Content = comment
+	zr.Content = arg.comment
 	if err := zr.Sign(sk); err != nil {
 		return err
 	}
@@ -260,7 +267,7 @@ func doZap(cCtx *cli.Context) error {
 		return err
 	}
 
-	zi, err := cfg.ZapInfo(receipt)
+	zi, err := arg.cfg.ZapInfo(receipt)
 	if err != nil {
 		return err
 	}
@@ -269,7 +276,7 @@ func doZap(cCtx *cli.Context) error {
 		return err
 	}
 	param := url.Values{}
-	param.Set("amount", fmt.Sprint(amount*1000))
+	param.Set("amount", fmt.Sprint(arg.amount*1000))
 	param.Set("nostr", string(b))
 	u.RawQuery = param.Encode()
 	resp, err := http.Get(u.String())
@@ -284,7 +291,7 @@ func doZap(cCtx *cli.Context) error {
 		return err
 	}
 
-	if cfg.NwcURI == "" {
+	if arg.cfg.NwcURI == "" {
 		config := qrterminal.Config{
 			HalfBlocks: false,
 			Level:      qrterminal.L,
@@ -297,7 +304,7 @@ func doZap(cCtx *cli.Context) error {
 		fmt.Println("lightning:" + iv.PR)
 		qrterminal.GenerateWithConfig("lightning:"+iv.PR, config)
 	} else {
-		pay(cCtx.App.Metadata["config"].(*Config), iv.PR)
+		pay(arg.cfg, iv.PR)
 	}
 	return nil
 }

@@ -722,6 +722,13 @@ func main() {
 				Action:    doPuru,
 			},
 			{
+				Name:      "mcp",
+				Usage:     "mcp server",
+				UsageText: "algia mcp",
+				HelpName:  "mcp",
+				Action:    doMcp,
+			},
+			{
 				Name: "zap",
 				Flags: []cli.Flag{
 					&cli.Uint64Flag{Name: "amount", Usage: "amount for zap", Value: 1},

@@ -19,13 +19,13 @@ import (
 	"github.com/nbd-wtf/go-nostr/sdk"
 )
 
+var usageError = errors.New("usage")
+
 func doPost(cCtx *cli.Context) error {
 	stdin := cCtx.Bool("stdin")
 	if !stdin && cCtx.Args().Len() == 0 {
 		return cli.ShowSubcommandHelp(cCtx)
 	}
-	sensitive := cCtx.String("sensitive")
-	geohash := cCtx.String("geohash")
 	articleName := cCtx.String("article-name")
 	articleTitle := cCtx.String("article-title")
 	articleSummary := cCtx.String("article-summary")
@@ -33,10 +33,44 @@ func doPost(cCtx *cli.Context) error {
 		return cli.ShowSubcommandHelp(cCtx)
 	}
 
-	cfg := cCtx.App.Metadata["config"].(*Config)
+	var content string
+	if stdin {
+		b, err := ioutil.ReadAll(os.Stdin)
+		if err != nil {
+			return err
+		}
+		content = string(b)
+	} else {
+		content = strings.Join(cCtx.Args().Slice(), "\n")
+	}
+	return callPost(&postArg{
+		cfg:            cCtx.App.Metadata["config"].(*Config),
+		content:        content,
+		sensitive:      cCtx.String("sensitive"),
+		geohash:        cCtx.String("geohash"),
+		articleName:    articleName,
+		articleTitle:   articleTitle,
+		articleSummary: articleSummary,
+		emoji:          cCtx.StringSlice("emoji"),
+		us:             cCtx.StringSlice("u"),
+	})
+}
 
+type postArg struct {
+	cfg            *Config
+	content        string
+	sensitive      string
+	geohash        string
+	articleName    string
+	articleTitle   string
+	articleSummary string
+	emoji          []string
+	us             []string
+}
+
+func callPost(arg *postArg) error {
 	var sk string
-	if _, s, err := nip19.Decode(cfg.PrivateKey); err == nil {
+	if _, s, err := nip19.Decode(arg.cfg.PrivateKey); err == nil {
 		sk = s.(string)
 	} else {
 		return err
@@ -51,15 +85,7 @@ func doPost(cCtx *cli.Context) error {
 		return err
 	}
 
-	if stdin {
-		b, err := ioutil.ReadAll(os.Stdin)
-		if err != nil {
-			return err
-		}
-		ev.Content = string(b)
-	} else {
-		ev.Content = strings.Join(cCtx.Args().Slice(), "\n")
-	}
+	ev.Content = arg.content
 	if strings.TrimSpace(ev.Content) == "" {
 		return errors.New("content is empty")
 	}
@@ -71,21 +97,21 @@ func doPost(cCtx *cli.Context) error {
 		ev.Tags = ev.Tags.AppendUnique(nostr.Tag{"r", entry.text})
 	}
 
-	for _, u := range cCtx.StringSlice("emoji") {
+	for _, u := range arg.emoji {
 		tok := strings.SplitN(u, "=", 2)
 		if len(tok) != 2 {
-			return cli.ShowSubcommandHelp(cCtx)
+			return usageError
 		}
 		ev.Tags = ev.Tags.AppendUnique(nostr.Tag{"emoji", tok[0], tok[1]})
 	}
 	for _, entry := range extractEmojis(ev.Content) {
 		name := strings.Trim(entry.text, ":")
-		if icon, ok := cfg.Emojis[name]; ok {
+		if icon, ok := arg.cfg.Emojis[name]; ok {
 			ev.Tags = ev.Tags.AppendUnique(nostr.Tag{"emoji", name, icon})
 		}
 	}
 
-	for i, u := range cCtx.StringSlice("u") {
+	for i, u := range arg.us {
 		ev.Content = fmt.Sprintf("#[%d] ", i) + ev.Content
 		if pp := sdk.InputToProfile(context.TODO(), u); pp != nil {
 			u = pp.PublicKey
@@ -95,12 +121,12 @@ func doPost(cCtx *cli.Context) error {
 		ev.Tags = ev.Tags.AppendUnique(nostr.Tag{"p", u})
 	}
 
-	if sensitive != "" {
-		ev.Tags = ev.Tags.AppendUnique(nostr.Tag{"content-warning", sensitive})
+	if arg.sensitive != "" {
+		ev.Tags = ev.Tags.AppendUnique(nostr.Tag{"content-warning", arg.sensitive})
 	}
 
-	if geohash != "" {
-		ev.Tags = ev.Tags.AppendUnique(nostr.Tag{"g", geohash})
+	if arg.geohash != "" {
+		ev.Tags = ev.Tags.AppendUnique(nostr.Tag{"g", arg.geohash})
 	}
 
 	hashtag := nostr.Tag{"t"}
@@ -112,13 +138,13 @@ func doPost(cCtx *cli.Context) error {
 	}
 
 	ev.CreatedAt = nostr.Now()
-	if articleName != "" {
+	if arg.articleName != "" {
 		ev.Kind = nostr.KindArticle
-		ev.Tags = ev.Tags.AppendUnique(nostr.Tag{"d", articleName})
-		ev.Tags = ev.Tags.AppendUnique(nostr.Tag{"title", articleTitle})
-		ev.Tags = ev.Tags.AppendUnique(nostr.Tag{"summary", articleSummary})
+		ev.Tags = ev.Tags.AppendUnique(nostr.Tag{"d", arg.articleName})
+		ev.Tags = ev.Tags.AppendUnique(nostr.Tag{"title", arg.articleTitle})
+		ev.Tags = ev.Tags.AppendUnique(nostr.Tag{"summary", arg.articleSummary})
 		ev.Tags = ev.Tags.AppendUnique(nostr.Tag{"published_at", fmt.Sprint(nostr.Now())})
-		ev.Tags = ev.Tags.AppendUnique(nostr.Tag{"a", fmt.Sprintf("%d:%s:%s", ev.Kind, ev.PubKey, articleName), "wss://yabu.me"})
+		ev.Tags = ev.Tags.AppendUnique(nostr.Tag{"a", fmt.Sprintf("%d:%s:%s", ev.Kind, ev.PubKey, arg.articleName), "wss://yabu.me"})
 	} else {
 		ev.Kind = nostr.KindTextNote
 	}
@@ -127,7 +153,7 @@ func doPost(cCtx *cli.Context) error {
 	}
 
 	var success atomic.Int64
-	cfg.Do(Relay{Write: true}, func(ctx context.Context, relay *nostr.Relay) bool {
+	arg.cfg.Do(Relay{Write: true}, func(ctx context.Context, relay *nostr.Relay) bool {
 		err := relay.Publish(ctx, ev)
 		if err != nil {
 			fmt.Fprintln(os.Stderr, relay.URL, err)
@@ -139,7 +165,7 @@ func doPost(cCtx *cli.Context) error {
 	if success.Load() == 0 {
 		return errors.New("cannot post")
 	}
-	if cfg.verbose {
+	if arg.cfg.verbose {
 		if id, err := nip19.EncodeNote(ev.ID); err == nil {
 			fmt.Println(id)
 		}
@@ -465,13 +491,25 @@ func doUnrepost(cCtx *cli.Context) error {
 }
 
 func doLike(cCtx *cli.Context) error {
-	id := cCtx.String("id")
+	return callLike(&likeArg{
+		cfg:     cCtx.App.Metadata["config"].(*Config),
+		id:      cCtx.String("id"),
+		content: cCtx.String("content"),
+		emoji:   cCtx.String("emoji"),
+	})
+}
 
-	cfg := cCtx.App.Metadata["config"].(*Config)
+type likeArg struct {
+	cfg     *Config
+	id      string
+	content string
+	emoji   string
+}
 
+func callLike(arg *likeArg) error {
 	ev := nostr.Event{}
 	var sk string
-	if _, s, err := nip19.Decode(cfg.PrivateKey); err == nil {
+	if _, s, err := nip19.Decode(arg.cfg.PrivateKey); err == nil {
 		sk = s.(string)
 	} else {
 		return err
@@ -485,26 +523,25 @@ func doLike(cCtx *cli.Context) error {
 		return err
 	}
 
-	if evp := sdk.InputToEventPointer(id); evp != nil {
-		id = evp.ID
+	if evp := sdk.InputToEventPointer(arg.id); evp != nil {
+		arg.id = evp.ID
 	} else {
-		return fmt.Errorf("failed to parse event from '%s'", id)
+		return fmt.Errorf("failed to parse event from '%s'", arg.id)
 	}
-	ev.Tags = ev.Tags.AppendUnique(nostr.Tag{"e", id})
+	ev.Tags = ev.Tags.AppendUnique(nostr.Tag{"e", arg.id})
 	filter := nostr.Filter{
 		Kinds: []int{nostr.KindTextNote},
-		IDs:   []string{id},
+		IDs:   []string{arg.id},
 	}
 
 	ev.CreatedAt = nostr.Now()
 	ev.Kind = nostr.KindReaction
-	ev.Content = cCtx.String("content")
-	emoji := cCtx.String("emoji")
-	if emoji != "" {
+	ev.Content = arg.content
+	if arg.emoji != "" {
 		if ev.Content == "" {
 			ev.Content = "like"
 		}
-		ev.Tags = ev.Tags.AppendUnique(nostr.Tag{"emoji", ev.Content, emoji})
+		ev.Tags = ev.Tags.AppendUnique(nostr.Tag{"emoji", ev.Content, arg.emoji})
 		ev.Content = ":" + ev.Content + ":"
 	}
 	if ev.Content == "" {
@@ -515,7 +552,7 @@ func doLike(cCtx *cli.Context) error {
 	first.Store(true)
 
 	var success atomic.Int64
-	cfg.Do(Relay{Write: true}, func(ctx context.Context, relay *nostr.Relay) bool {
+	arg.cfg.Do(Relay{Write: true}, func(ctx context.Context, relay *nostr.Relay) bool {
 		if first.Load() {
 			evs, err := relay.QuerySync(ctx, filter)
 			if err != nil {
