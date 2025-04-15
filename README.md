@@ -80,6 +80,21 @@ If you want to zap via Nostr Wallet Connect, please add `nwc-uri` which are prov
 }
 ```
 
+## MCP
+
+```json
+{
+    "mcpServers": {
+        "algia": {
+            "command": "/path/to/algia",
+            "args": [
+                "mcp"
+            ]
+        }
+    }
+}
+```
+
 ## TODO
 
 * [x] like
