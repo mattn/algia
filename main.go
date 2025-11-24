@@ -36,15 +36,18 @@ type Relay struct {
 
 // Config is
 type Config struct {
-	Relays     map[string]Relay   `json:"relays"`
-	Follows    map[string]Profile `json:"follows"`
-	PrivateKey string             `json:"privatekey"`
-	Updated    time.Time          `json:"updated"`
-	Emojis     map[string]string  `json:"emojis"`
-	NwcURI     string             `json:"nwc-uri"`
-	verbose    bool
-	tempRelay  bool
-	sk         string
+	Relays         map[string]Relay  `json:"relays"`
+	FollowList     []string          `json:"followList"`
+	PrivateKey     string            `json:"privatekey"`
+	Updated        time.Time         `json:"updated"`
+	Emojis         map[string]string `json:"emojis"`
+	NwcURI         string            `json:"nwc-uri"`
+	profiles       map[string]Profile
+	pool           *nostr.SimplePool
+	profileChanged bool
+	verbose        bool
+	tempRelay      bool
+	sk             string
 }
 
 // Event is
@@ -55,14 +58,15 @@ type Event struct {
 
 // Profile is
 type Profile struct {
-	Website     string `json:"website"`
-	Nip05       string `json:"nip05"`
-	Picture     string `json:"picture"`
-	Lud16       string `json:"lud16"`
-	DisplayName string `json:"display_name"`
-	About       string `json:"about"`
-	Name        string `json:"name"`
-	Bot         bool   `json:"bot"`
+	Website     string    `json:"website"`
+	Nip05       string    `json:"nip05"`
+	Picture     string    `json:"picture"`
+	Lud16       string    `json:"lud16"`
+	DisplayName string    `json:"display_name"`
+	About       string    `json:"about"`
+	Name        string    `json:"name"`
+	Bot         bool      `json:"bot"`
+	FetchedAt   time.Time `json:"fetched_at,omitempty"`
 }
 
 func configDir() (string, error) {
@@ -86,8 +90,10 @@ func loadConfig(profile string) (*Config, error) {
 	dir = filepath.Join(dir, "algia")
 
 	var fp string
+	var profilesFp string
 	if profile == "" {
 		fp = filepath.Join(dir, "config.json")
+		profilesFp = filepath.Join(dir, "profiles.json")
 	} else if profile == "?" {
 		names, err := filepath.Glob(filepath.Join(dir, "config-*.json"))
 		if err != nil {
@@ -101,6 +107,7 @@ func loadConfig(profile string) (*Config, error) {
 		os.Exit(0)
 	} else {
 		fp = filepath.Join(dir, "config-"+profile+".json")
+		profilesFp = filepath.Join(dir, "profiles-"+profile+".json")
 	}
 	os.MkdirAll(filepath.Dir(fp), 0700)
 
@@ -121,6 +128,18 @@ func loadConfig(profile string) (*Config, error) {
 			Search: true,
 		}
 	}
+
+	// Load profiles from profiles.json
+	cfg.profiles = make(map[string]Profile)
+	if profilesData, err := os.ReadFile(profilesFp); err == nil {
+		json.Unmarshal(profilesData, &cfg.profiles)
+	}
+
+	if cfg.FollowList == nil {
+		cfg.FollowList = []string{}
+	}
+	// Initialize pool with read relays
+	cfg.pool = nostr.NewSimplePool(context.Background())
 	return &cfg, nil
 }
 
@@ -137,9 +156,9 @@ func (cfg *Config) GetFollows(profile string) (map[string]Profile, error) {
 	}
 
 	// get followers
-	if (cfg.Updated.Add(3*time.Hour).Before(time.Now()) && !cfg.tempRelay) || len(cfg.Follows) == 0 {
+	if len(cfg.FollowList) == 0 {
 		mu.Lock()
-		cfg.Follows = map[string]Profile{}
+		cfg.FollowList = []string{}
 		mu.Unlock()
 		m := map[string]struct{}{}
 
@@ -199,6 +218,11 @@ func (cfg *Config) GetFollows(profile string) (map[string]Profile, error) {
 				follows = append(follows, k)
 			}
 
+			// Store follows as array of pubkeys
+			mu.Lock()
+			cfg.FollowList = follows
+			mu.Unlock()
+
 			for i := 0; i < len(follows); i += 500 {
 				// Calculate the end index based on the current index and slice length
 				end := i + 500
@@ -219,8 +243,10 @@ func (cfg *Config) GetFollows(profile string) (map[string]Profile, error) {
 						var profile Profile
 						err := json.Unmarshal([]byte(ev.Content), &profile)
 						if err == nil {
+							profile.FetchedAt = time.Now()
 							mu.Lock()
-							cfg.Follows[ev.PubKey] = profile
+							cfg.profiles[ev.PubKey] = profile
+							cfg.profileChanged = true
 							mu.Unlock()
 						}
 					}
@@ -229,12 +255,85 @@ func (cfg *Config) GetFollows(profile string) (map[string]Profile, error) {
 			}
 		}
 
-		cfg.Updated = time.Now()
 		if err := cfg.save(profile); err != nil {
 			return nil, err
 		}
 	}
-	return cfg.Follows, nil
+
+	// Return a map for compatibility with existing code
+	followsMap := make(map[string]Profile)
+	for _, pubkey := range cfg.FollowList {
+		if profile, ok := cfg.profiles[pubkey]; ok {
+			followsMap[pubkey] = profile
+		}
+	}
+	return followsMap, nil
+}
+
+// GetProfile retrieves a profile by npub, fetching from nostr if not cached
+func (cfg *Config) GetProfile(npub string) (*Profile, error) {
+	// Decode npub to get public key
+	var pub string
+	if prefix, decoded, err := nip19.Decode(npub); err == nil {
+		if prefix == "npub" {
+			pub = decoded.(string)
+		} else {
+			return nil, fmt.Errorf("invalid npub format: %s", npub)
+		}
+	} else {
+		// Maybe it's already a hex public key
+		pub = npub
+	}
+
+	// Check cache first and see if it's fresh (less than 24 hours old)
+	if profile, ok := cfg.profiles[pub]; ok {
+		if !profile.FetchedAt.IsZero() && time.Since(profile.FetchedAt) < 24*time.Hour {
+			return &profile, nil
+		}
+		// Profile exists but is stale, will refetch
+	}
+
+	// Fetch from nostr using pool with timeout
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	relays := []string{}
+	for k, v := range cfg.Relays {
+		if v.Read {
+			relays = append(relays, k)
+		}
+	}
+
+	if len(relays) == 0 {
+		return nil, errors.New("no read relays available")
+	}
+
+	// Query for kind 0 (profile metadata)
+	events := cfg.pool.QuerySingle(ctx, relays, nostr.Filter{
+		Kinds:   []int{nostr.KindProfileMetadata},
+		Authors: []string{pub},
+		Limit:   1,
+	})
+
+	if events == nil {
+		// If fetch fails but we have a stale cache, return it
+		if profile, ok := cfg.profiles[pub]; ok {
+			return &profile, nil
+		}
+		return nil, fmt.Errorf("profile not found for %s", npub)
+	}
+
+	var profile Profile
+	if err := json.Unmarshal([]byte(events.Content), &profile); err != nil {
+		return nil, fmt.Errorf("failed to parse profile: %w", err)
+	}
+
+	// Set fetch timestamp and cache the profile
+	profile.FetchedAt = time.Now()
+	cfg.profiles[pub] = profile
+	cfg.profileChanged = true
+
+	return &profile, nil
 }
 
 // FindRelay is
@@ -308,16 +407,67 @@ func (cfg *Config) save(profile string) error {
 	dir = filepath.Join(dir, "algia")
 
 	var fp string
+	var profilesFp string
 	if profile == "" {
 		fp = filepath.Join(dir, "config.json")
+		profilesFp = filepath.Join(dir, "profiles.json")
 	} else {
 		fp = filepath.Join(dir, "config-"+profile+".json")
+		profilesFp = filepath.Join(dir, "profiles-"+profile+".json")
 	}
+
+	// Save config
 	b, err := json.MarshalIndent(&cfg, "", "  ")
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(fp, b, 0644)
+	if err := os.WriteFile(fp, b, 0644); err != nil {
+		return err
+	}
+
+	// Save profiles only if changed
+	if cfg.profileChanged && cfg.profiles != nil && len(cfg.profiles) > 0 {
+		profilesData, err := json.MarshalIndent(cfg.profiles, "", "  ")
+		if err != nil {
+			return err
+		}
+		if err := os.WriteFile(profilesFp, profilesData, 0644); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (cfg *Config) saveProfiles(profile string) error {
+	if cfg.tempRelay || !cfg.profileChanged {
+		return nil
+	}
+	dir, err := configDir()
+	if err != nil {
+		return err
+	}
+	dir = filepath.Join(dir, "algia")
+
+	var profilesFp string
+	if profile == "" {
+		profilesFp = filepath.Join(dir, "profiles.json")
+	} else {
+		profilesFp = filepath.Join(dir, "profiles-"+profile+".json")
+	}
+
+	// Save profiles only if changed
+	if cfg.profiles != nil && len(cfg.profiles) > 0 {
+		profilesData, err := json.MarshalIndent(cfg.profiles, "", "  ")
+		if err != nil {
+			return err
+		}
+		if err := os.WriteFile(profilesFp, profilesData, 0644); err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
 
 // Decode is
@@ -362,10 +512,11 @@ func (cfg *Config) PrintEvents(evs []*nostr.Event, followsMap map[string]Profile
 		if extra {
 			var events []Event
 			for _, ev := range evs {
-				if profile, ok := followsMap[ev.PubKey]; ok {
+				profile, err := cfg.GetProfile(ev.PubKey)
+				if err == nil {
 					events = append(events, Event{
 						Event:   ev,
-						Profile: profile,
+						Profile: *profile,
 					})
 				}
 			}
@@ -381,8 +532,8 @@ func (cfg *Config) PrintEvents(evs []*nostr.Event, followsMap map[string]Profile
 	}
 
 	for _, ev := range evs {
-		profile, ok := followsMap[ev.PubKey]
-		if ok {
+		profile, err := cfg.GetProfile(ev.PubKey)
+		if err == nil {
 			color.Set(color.FgHiRed)
 			fmt.Print(profile.Name)
 		} else {
@@ -404,6 +555,49 @@ func (cfg *Config) PrintEvents(evs []*nostr.Event, followsMap map[string]Profile
 		color.Set(color.Reset)
 		fmt.Println(ev.Content)
 	}
+}
+
+// PrintEvent prints a single event
+func (cfg *Config) PrintEvent(ev *nostr.Event, j, extra bool) {
+	if j {
+		if extra {
+			// Check cache only, don't fetch
+			if profile, ok := cfg.profiles[ev.PubKey]; ok {
+				json.NewEncoder(os.Stdout).Encode(Event{
+					Event:   ev,
+					Profile: profile,
+				})
+			} else {
+				json.NewEncoder(os.Stdout).Encode(ev)
+			}
+		} else {
+			json.NewEncoder(os.Stdout).Encode(ev)
+		}
+		return
+	}
+
+	// Check cache only, don't fetch
+	if profile, ok := cfg.profiles[ev.PubKey]; ok {
+		color.Set(color.FgHiRed)
+		fmt.Print(profile.Name)
+	} else {
+		color.Set(color.FgRed)
+		if pk, err := nip19.EncodePublicKey(ev.PubKey); err == nil {
+			fmt.Print(pk)
+		} else {
+			fmt.Print(ev.PubKey)
+		}
+	}
+	color.Set(color.Reset)
+	fmt.Print(": ")
+	color.Set(color.FgHiBlue)
+	if ni, err := nip19.EncodeNote(ev.ID); err == nil {
+		fmt.Println(ni)
+	} else {
+		fmt.Println(ev.ID)
+	}
+	color.Set(color.Reset)
+	fmt.Println(ev.Content)
 }
 
 // Events is
@@ -471,6 +665,62 @@ func (cfg *Config) Events(filter nostr.Filter) []*nostr.Event {
 		evs = append(evs, vv.(*nostr.Event))
 	}
 	return evs
+}
+
+// StreamEvents streams events as they arrive, calling the callback for each new event
+// If closeOnEOSE is true, it stops after receiving EOSE from all relays
+func (cfg *Config) StreamEvents(filter nostr.Filter, closeOnEOSE bool, callback func(*nostr.Event)) {
+	ctx := context.Background()
+
+	// Get read relays
+	relays := []string{}
+	for k, v := range cfg.Relays {
+		if v.Read {
+			// Skip search relays unless filter has search
+			if filter.Search != "" && !v.Search {
+				continue
+			}
+			relays = append(relays, k)
+		}
+	}
+
+	if len(relays) == 0 {
+		return
+	}
+
+	// Use pool to subscribe to events
+	seen := make(map[string]bool)
+	var mu sync.Mutex
+
+	// Choose SubMany or SubManyEose based on closeOnEOSE flag
+	var eventChan chan nostr.RelayEvent
+	if closeOnEOSE {
+		eventChan = cfg.pool.SubManyEose(ctx, relays, nostr.Filters{filter})
+	} else {
+		eventChan = cfg.pool.SubMany(ctx, relays, nostr.Filters{filter})
+	}
+
+	for ie := range eventChan {
+		ev := ie.Event
+		if ev == nil {
+			continue
+		}
+
+		mu.Lock()
+		if seen[ev.ID] {
+			mu.Unlock()
+			continue
+		}
+		seen[ev.ID] = true
+		mu.Unlock()
+
+		if ev.Kind == nostr.KindEncryptedDirectMessage || ev.Kind == nostr.KindCategorizedBookmarksList {
+			if err := cfg.Decode(ev); err != nil {
+				continue
+			}
+		}
+		callback(ev)
+	}
 }
 
 func doVersion(cCtx *cli.Context) error {
@@ -770,7 +1020,8 @@ func main() {
 				return err
 			}
 			cCtx.App.Metadata = map[string]any{
-				"config": cfg,
+				"config":  cfg,
+				"profile": profile,
 			}
 			cfg.verbose = cCtx.Bool("V")
 			relays := cCtx.String("relays")
@@ -783,6 +1034,17 @@ func main() {
 					}
 				}
 				cfg.tempRelay = true
+			}
+			return nil
+		},
+		After: func(cCtx *cli.Context) error {
+			if cCtx.Args().Get(0) == "version" {
+				return nil
+			}
+			if cfg, ok := cCtx.App.Metadata["config"].(*Config); ok {
+				if profile, ok := cCtx.App.Metadata["profile"].(string); ok {
+					return cfg.saveProfiles(profile)
+				}
 			}
 			return nil
 		},

@@ -17,7 +17,7 @@ func doBMList(cCtx *cli.Context) error {
 	cfg := cCtx.App.Metadata["config"].(*Config)
 
 	// get followers
-	followsMap, err := cfg.GetFollows(cCtx.String("a"))
+	_, err := cfg.GetFollows(cCtx.String("a"))
 	if err != nil {
 		return err
 	}
@@ -55,7 +55,7 @@ func doBMList(cCtx *cli.Context) error {
 		IDs:   be,
 	}
 	eevs := cfg.Events(filter)
-	cfg.PrintEvents(eevs, followsMap, j, extra)
+	cfg.PrintEvents(eevs, nil, j, extra)
 	return nil
 }
 

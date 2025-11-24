@@ -702,12 +702,8 @@ func doSearch(cCtx *cli.Context) error {
 	cfg := cCtx.App.Metadata["config"].(*Config)
 
 	// get followers
-	var followsMap map[string]Profile
-	var err error
-	if j && !extra {
-		followsMap = make(map[string]Profile)
-	} else {
-		followsMap, err = cfg.GetFollows(cCtx.String("a"))
+	if !(j && !extra) {
+		_, err := cfg.GetFollows(cCtx.String("a"))
 		if err != nil {
 			return err
 		}
@@ -721,7 +717,7 @@ func doSearch(cCtx *cli.Context) error {
 	}
 
 	evs := cfg.Events(filter)
-	cfg.PrintEvents(evs, followsMap, j, extra)
+	cfg.PrintEvents(evs, nil, j, extra)
 	return nil
 }
 
@@ -810,6 +806,7 @@ func doStream(cCtx *cli.Context) error {
 	pattern := cCtx.String("pattern")
 	reply := cCtx.String("reply")
 	tags := cCtx.StringSlice("tag")
+	j := cCtx.Bool("json")
 
 	var re *regexp.Regexp
 	if pattern != "" {
@@ -842,13 +839,11 @@ func doStream(cCtx *cli.Context) error {
 	// get followers
 	var follows []string
 	if f {
-		followsMap, err := cfg.GetFollows(cCtx.String("a"))
+		_, err := cfg.GetFollows(cCtx.String("a"))
 		if err != nil {
 			return err
 		}
-		for k := range followsMap {
-			follows = append(follows, k)
-		}
+		follows = append(follows, cfg.FollowList...)
 	} else {
 		for _, author := range authors {
 			if pp := sdk.InputToProfile(context.TODO(), author); pp != nil {
@@ -882,8 +877,14 @@ func doStream(cCtx *cli.Context) error {
 	}
 
 	if reply == "" {
-		for ev := range sub.Events {
-			json.NewEncoder(os.Stdout).Encode(ev)
+		if j {
+			for ev := range sub.Events {
+				json.NewEncoder(os.Stdout).Encode(ev)
+			}
+		} else {
+			for ev := range sub.Events {
+				cfg.PrintEvent(ev, j, false)
+			}
 		}
 	} else {
 		for ev := range sub.Events {
@@ -926,14 +927,15 @@ func doTimeline(cCtx *cli.Context) error {
 	cfg := cCtx.App.Metadata["config"].(*Config)
 
 	// get followers
-	followsMap, err := cfg.GetFollows(cCtx.String("a"))
+	_, err := cfg.GetFollows(cCtx.String("a"))
 	if err != nil {
 		return err
 	}
 	var follows []string
 	if u == "" {
-		for k := range followsMap {
-			follows = append(follows, k)
+		follows = append(follows, cfg.FollowList...)
+		if len(follows) == 0 {
+			return fmt.Errorf("no follows found. Please follow someone first.")
 		}
 	} else {
 		if pp := sdk.InputToProfile(context.TODO(), u); pp != nil {
@@ -955,8 +957,10 @@ func doTimeline(cCtx *cli.Context) error {
 		Limit:   n,
 	}
 
-	evs := cfg.Events(filter)
-	cfg.PrintEvents(evs, followsMap, j, extra)
+	// Stream events and print each one as it arrives, close on EOSE
+	cfg.StreamEvents(filter, true, func(ev *nostr.Event) {
+		cfg.PrintEvent(ev, j, extra)
+	})
 	return nil
 }
 

@@ -24,14 +24,9 @@ func doDMList(cCtx *cli.Context) error {
 
 	cfg := cCtx.App.Metadata["config"].(*Config)
 
-	// get followers
-	followsMap, err := cfg.GetFollows(cCtx.String("a"))
-	if err != nil {
-		return err
-	}
-
 	var sk string
 	var npub string
+	var err error
 	if _, s, err := nip19.Decode(cfg.PrivateKey); err == nil {
 		sk = s.(string)
 	} else {
@@ -61,23 +56,23 @@ func doDMList(cCtx *cli.Context) error {
 		if _, ok := m[p]; ok {
 			continue
 		}
-		if profile, ok := followsMap[p]; ok {
-			m[p] = struct{}{}
-			p, _ = nip19.EncodePublicKey(p)
+		m[p] = struct{}{}
+		npubEncoded, _ := nip19.EncodePublicKey(p)
+		
+		profile, err := cfg.GetProfile(p)
+		if err == nil {
 			name := profile.DisplayName
 			if name == "" {
 				name = profile.Name
 			}
 			users = append(users, entry{
 				Name:   name,
-				Pubkey: p,
+				Pubkey: npubEncoded,
 			})
 		} else {
-			m[p] = struct{}{}
-			p, _ = nip19.EncodePublicKey(p)
 			users = append(users, entry{
-				Name:   p,
-				Pubkey: p,
+				Name:   npubEncoded,
+				Pubkey: npubEncoded,
 			})
 		}
 	}
@@ -129,11 +124,6 @@ func doDMTimeline(cCtx *cli.Context) error {
 	} else {
 		return fmt.Errorf("failed to parse pubkey from '%s'", u)
 	}
-	// get followers
-	followsMap, err := cfg.GetFollows(cCtx.String("a"))
-	if err != nil {
-		return err
-	}
 
 	// get timeline
 	filter := nostr.Filter{
@@ -144,7 +134,7 @@ func doDMTimeline(cCtx *cli.Context) error {
 	}
 
 	evs := cfg.Events(filter)
-	cfg.PrintEvents(evs, followsMap, j, extra)
+	cfg.PrintEvents(evs, nil, j, extra)
 	return nil
 }
 
