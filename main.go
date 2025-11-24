@@ -171,7 +171,7 @@ func (cfg *Config) GetFollows(profile string) (map[string]Profile, error) {
 				relays = append(relays, k)
 			}
 		}
-		
+
 		if len(relays) == 0 {
 			return nil, errors.New("no read relays available")
 		}
@@ -227,7 +227,7 @@ func (cfg *Config) GetFollows(profile string) (map[string]Profile, error) {
 				}
 			}
 			cfg.FollowList = follows
-			
+
 			if cfg.verbose {
 				fmt.Printf("found %d followers\n", len(follows))
 			}
@@ -253,7 +253,7 @@ func (cfg *Config) GetFollows(profile string) (map[string]Profile, error) {
 						profileCount++
 					}
 				}
-				
+
 				// Create empty profiles for follows without metadata
 				for _, pubkey := range follows {
 					if !fetchedProfiles[pubkey] {
@@ -268,7 +268,7 @@ func (cfg *Config) GetFollows(profile string) (map[string]Profile, error) {
 						}
 					}
 				}
-				
+
 				if cfg.verbose {
 					fmt.Printf("fetched %d profiles out of %d follows\n", profileCount, len(follows))
 				}
@@ -629,7 +629,7 @@ func (cfg *Config) PrintEvent(ev *nostr.Event, j, extra bool) {
 // Events is
 func (cfg *Config) Events(filter nostr.Filter) []*nostr.Event {
 	ctx := context.Background()
-	
+
 	// Get read relays
 	relays := []string{}
 	for k, v := range cfg.Relays {
@@ -641,19 +641,19 @@ func (cfg *Config) Events(filter nostr.Filter) []*nostr.Event {
 			relays = append(relays, k)
 		}
 	}
-	
+
 	if len(relays) == 0 {
 		return nil
 	}
-	
+
 	seen := make(map[string]*nostr.Event)
-	
+
 	for relayEvent := range cfg.pool.SubManyEose(ctx, relays, nostr.Filters{filter}) {
 		if relayEvent.Event == nil {
 			continue
 		}
 		ev := relayEvent.Event
-		
+
 		if _, ok := seen[ev.ID]; !ok {
 			if ev.Kind == nostr.KindEncryptedDirectMessage || ev.Kind == nostr.KindCategorizedBookmarksList {
 				if err := cfg.Decode(ev); err != nil {
@@ -663,7 +663,7 @@ func (cfg *Config) Events(filter nostr.Filter) []*nostr.Event {
 			seen[ev.ID] = ev
 		}
 	}
-	
+
 	// Sort by timestamp
 	evs := make([]*nostr.Event, 0, len(seen))
 	for _, ev := range seen {
@@ -672,7 +672,7 @@ func (cfg *Config) Events(filter nostr.Filter) []*nostr.Event {
 	sort.Slice(evs, func(i, j int) bool {
 		return evs[i].CreatedAt.Time().Before(evs[j].CreatedAt.Time())
 	})
-	
+
 	return evs
 }
 

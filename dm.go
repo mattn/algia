@@ -58,7 +58,7 @@ func doDMList(cCtx *cli.Context) error {
 		}
 		m[p] = struct{}{}
 		npubEncoded, _ := nip19.EncodePublicKey(p)
-		
+
 		profile, err := cfg.GetProfile(p)
 		if err == nil {
 			name := profile.DisplayName
