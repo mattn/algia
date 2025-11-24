@@ -129,10 +129,18 @@ func loadConfig(profile string) (*Config, error) {
 		}
 	}
 
-	// Load profiles from profiles.json
+	// Load profiles from profiles.json (stored with npub keys)
 	cfg.profiles = make(map[string]Profile)
 	if profilesData, err := os.ReadFile(profilesFp); err == nil {
-		json.Unmarshal(profilesData, &cfg.profiles)
+		var npubProfiles map[string]Profile
+		if err := json.Unmarshal(profilesData, &npubProfiles); err == nil {
+			// Convert npub keys to hex pubkeys
+			for npub, profile := range npubProfiles {
+				if _, pubkey, err := nip19.Decode(npub); err == nil {
+					cfg.profiles[pubkey.(string)] = profile
+				}
+			}
+		}
 	}
 
 	if cfg.FollowList == nil {
@@ -145,7 +153,6 @@ func loadConfig(profile string) (*Config, error) {
 
 // GetFollows is
 func (cfg *Config) GetFollows(profile string) (map[string]Profile, error) {
-	var mu sync.Mutex
 	var pub string
 	if _, s, err := nip19.Decode(cfg.PrivateKey); err == nil {
 		if pub, err = nostr.GetPublicKey(s.(string)); err != nil {
@@ -156,102 +163,115 @@ func (cfg *Config) GetFollows(profile string) (map[string]Profile, error) {
 	}
 
 	// get followers
-	if len(cfg.FollowList) == 0 {
-		mu.Lock()
-		cfg.FollowList = []string{}
-		mu.Unlock()
-		m := map[string]struct{}{}
+	if len(cfg.FollowList) == 0 || len(cfg.profiles) == 0 {
+		ctx := context.Background()
+		relays := []string{}
+		for k, v := range cfg.Relays {
+			if v.Read {
+				relays = append(relays, k)
+			}
+		}
+		
+		if len(relays) == 0 {
+			return nil, errors.New("no read relays available")
+		}
 
-		cfg.Do(Relay{Read: true}, func(ctx context.Context, relay *nostr.Relay) bool {
-			if cfg.tempRelay == false {
-				evs, _ := relay.QuerySync(ctx, nostr.Filter{Kinds: []int{nostr.KindRelayListMetadata}, Authors: []string{pub}, Limit: 1})
-				if len(evs) > 0 {
-					rm := map[string]Relay{}
-					for _, r := range evs[0].Tags.GetAll([]string{"r"}) {
-						if len(r) == 2 {
+		// Get relay list metadata
+		if !cfg.tempRelay {
+			if ev := cfg.pool.QuerySingle(ctx, relays, nostr.Filter{
+				Kinds:   []int{nostr.KindRelayListMetadata},
+				Authors: []string{pub},
+				Limit:   1,
+			}); ev != nil {
+				rm := map[string]Relay{}
+				for _, r := range ev.Tags.GetAll([]string{"r"}) {
+					if len(r) == 2 {
+						rm[r[1]] = Relay{
+							Read:  true,
+							Write: true,
+						}
+					} else if len(r) == 3 {
+						switch r[2] {
+						case "read":
+							rm[r[1]] = Relay{
+								Read:  true,
+								Write: false,
+							}
+						case "write":
 							rm[r[1]] = Relay{
 								Read:  true,
 								Write: true,
 							}
-						} else if len(r) == 3 {
-							switch r[2] {
-							case "read":
-								rm[r[1]] = Relay{
-									Read:  true,
-									Write: false,
-								}
-							case "write":
-								rm[r[1]] = Relay{
-									Read:  true,
-									Write: true,
-								}
-							}
 						}
 					}
-					for k, v1 := range cfg.Relays {
-						if v2, ok := rm[k]; ok {
-							v2.Search = v1.Search
-						}
-					}
-					cfg.Relays = rm
 				}
-			}
-
-			evs, _ := relay.QuerySync(ctx, nostr.Filter{Kinds: []int{nostr.KindFollowList}, Authors: []string{pub}, Limit: 1})
-			if len(evs) > 0 {
-				for _, tag := range evs[0].Tags {
-					if len(tag) >= 2 && tag[0] == "p" {
-						mu.Lock()
-						m[tag[1]] = struct{}{}
-						mu.Unlock()
+				for k, v1 := range cfg.Relays {
+					if v2, ok := rm[k]; ok {
+						v2.Search = v1.Search
 					}
 				}
+				cfg.Relays = rm
 			}
-			return true
-		})
-		if cfg.verbose {
-			fmt.Printf("found %d followers\n", len(m))
 		}
-		if len(m) > 0 {
+
+		// Get follow list
+		if ev := cfg.pool.QuerySingle(ctx, relays, nostr.Filter{
+			Kinds:   []int{nostr.KindFollowList},
+			Authors: []string{pub},
+			Limit:   1,
+		}); ev != nil {
 			follows := []string{}
-			for k := range m {
-				follows = append(follows, k)
+			for _, tag := range ev.Tags {
+				if len(tag) >= 2 && tag[0] == "p" {
+					follows = append(follows, tag[1])
+				}
+			}
+			cfg.FollowList = follows
+			
+			if cfg.verbose {
+				fmt.Printf("found %d followers\n", len(follows))
 			}
 
-			// Store follows as array of pubkeys
-			mu.Lock()
-			cfg.FollowList = follows
-			mu.Unlock()
-
-			for i := 0; i < len(follows); i += 500 {
-				// Calculate the end index based on the current index and slice length
-				end := i + 500
-				if end > len(follows) {
-					end = len(follows)
-				}
-
-				// get follower's descriptions
-				cfg.Do(Relay{Read: true}, func(ctx context.Context, relay *nostr.Relay) bool {
-					evs, err := relay.QuerySync(ctx, nostr.Filter{
-						Kinds:   []int{nostr.KindProfileMetadata},
-						Authors: follows[i:end], // Use the updated end index
-					})
-					if err != nil {
-						return true
+			// Batch fetch profiles
+			if len(follows) > 0 {
+				profileCount := 0
+				fetchedProfiles := make(map[string]bool)
+				for relayEvent := range cfg.pool.SubManyEose(ctx, relays, nostr.Filters{{
+					Kinds:   []int{nostr.KindProfileMetadata},
+					Authors: follows,
+				}}) {
+					if relayEvent.Event == nil {
+						continue
 					}
-					for _, ev := range evs {
-						var profile Profile
-						err := json.Unmarshal([]byte(ev.Content), &profile)
-						if err == nil {
-							profile.FetchedAt = time.Now()
-							mu.Lock()
-							cfg.profiles[ev.PubKey] = profile
+					ev := relayEvent.Event
+					var profile Profile
+					if err := json.Unmarshal([]byte(ev.Content), &profile); err == nil {
+						profile.FetchedAt = time.Now()
+						cfg.profiles[ev.PubKey] = profile
+						cfg.profileChanged = true
+						fetchedProfiles[ev.PubKey] = true
+						profileCount++
+					}
+				}
+				
+				// Create empty profiles for follows without metadata
+				for _, pubkey := range follows {
+					if !fetchedProfiles[pubkey] {
+						if _, exists := cfg.profiles[pubkey]; !exists {
+							// Create a minimal profile with pubkey as name
+							npub, _ := nip19.EncodePublicKey(pubkey)
+							cfg.profiles[pubkey] = Profile{
+								Name:      npub[:16] + "...", // Shortened npub
+								FetchedAt: time.Now(),
+							}
 							cfg.profileChanged = true
-							mu.Unlock()
 						}
 					}
-					return true
-				})
+				}
+				
+				if cfg.verbose {
+					fmt.Printf("fetched %d profiles out of %d follows\n", profileCount, len(follows))
+				}
 			}
 		}
 
@@ -456,9 +476,15 @@ func (cfg *Config) saveProfiles(profile string) error {
 		profilesFp = filepath.Join(dir, "profiles-"+profile+".json")
 	}
 
-	// Save profiles only if changed
+	// Save profiles only if changed (convert hex pubkeys to npub)
 	if cfg.profiles != nil && len(cfg.profiles) > 0 {
-		profilesData, err := json.MarshalIndent(cfg.profiles, "", "  ")
+		npubProfiles := make(map[string]Profile)
+		for pubkey, profile := range cfg.profiles {
+			if npub, err := nip19.EncodePublicKey(pubkey); err == nil {
+				npubProfiles[npub] = profile
+			}
+		}
+		profilesData, err := json.MarshalIndent(npubProfiles, "", "  ")
 		if err != nil {
 			return err
 		}
@@ -602,68 +628,51 @@ func (cfg *Config) PrintEvent(ev *nostr.Event, j, extra bool) {
 
 // Events is
 func (cfg *Config) Events(filter nostr.Filter) []*nostr.Event {
-	rf := Relay{Read: true}
-	if filter.Search != "" {
-		rf.Search = true
-	}
-	var mu sync.Mutex
-	found := false
-	var m sync.Map
-	cfg.Do(rf, func(ctx context.Context, relay *nostr.Relay) bool {
-		mu.Lock()
-		if found {
-			mu.Unlock()
-			return false
-		}
-		mu.Unlock()
-		evs, err := relay.QuerySync(ctx, filter)
-		if err != nil {
-			return true
-		}
-		for _, ev := range evs {
-			if _, ok := m.Load(ev.ID); !ok {
-				if ev.Kind == nostr.KindEncryptedDirectMessage || ev.Kind == nostr.KindCategorizedBookmarksList {
-					if err := cfg.Decode(ev); err != nil {
-						continue
-					}
-				}
-				m.LoadOrStore(ev.ID, ev)
-				if len(filter.IDs) == 1 {
-					mu.Lock()
-					found = true
-					ctx.Done()
-					mu.Unlock()
-					break
-				}
+	ctx := context.Background()
+	
+	// Get read relays
+	relays := []string{}
+	for k, v := range cfg.Relays {
+		if v.Read {
+			// Skip search relays unless filter has search
+			if filter.Search != "" && !v.Search {
+				continue
 			}
+			relays = append(relays, k)
 		}
-		return true
-	})
-
-	keys := []string{}
-	m.Range(func(k, v any) bool {
-		keys = append(keys, k.(string))
-		return true
-	})
-	sort.Slice(keys, func(i, j int) bool {
-		lhs, ok := m.Load(keys[i])
-		if !ok {
-			return false
-		}
-		rhs, ok := m.Load(keys[j])
-		if !ok {
-			return false
-		}
-		return lhs.(*nostr.Event).CreatedAt.Time().Before(rhs.(*nostr.Event).CreatedAt.Time())
-	})
-	var evs []*nostr.Event
-	for _, key := range keys {
-		vv, ok := m.Load(key)
-		if !ok {
+	}
+	
+	if len(relays) == 0 {
+		return nil
+	}
+	
+	seen := make(map[string]*nostr.Event)
+	
+	for relayEvent := range cfg.pool.SubManyEose(ctx, relays, nostr.Filters{filter}) {
+		if relayEvent.Event == nil {
 			continue
 		}
-		evs = append(evs, vv.(*nostr.Event))
+		ev := relayEvent.Event
+		
+		if _, ok := seen[ev.ID]; !ok {
+			if ev.Kind == nostr.KindEncryptedDirectMessage || ev.Kind == nostr.KindCategorizedBookmarksList {
+				if err := cfg.Decode(ev); err != nil {
+					continue
+				}
+			}
+			seen[ev.ID] = ev
+		}
 	}
+	
+	// Sort by timestamp
+	evs := make([]*nostr.Event, 0, len(seen))
+	for _, ev := range seen {
+		evs = append(evs, ev)
+	}
+	sort.Slice(evs, func(i, j int) bool {
+		return evs[i].CreatedAt.Time().Before(evs[j].CreatedAt.Time())
+	})
+	
 	return evs
 }
 

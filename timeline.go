@@ -8,6 +8,7 @@ import (
 	"io/ioutil"
 	"os"
 	"regexp"
+	"sort"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -957,10 +958,25 @@ func doTimeline(cCtx *cli.Context) error {
 		Limit:   n,
 	}
 
-	// Stream events and print each one as it arrives, close on EOSE
+	// Collect all events, then sort and display top n
+	events := []*nostr.Event{}
 	cfg.StreamEvents(filter, true, func(ev *nostr.Event) {
-		cfg.PrintEvent(ev, j, extra)
+		events = append(events, ev)
 	})
+	
+	// Sort by timestamp descending (newest first)
+	sort.Slice(events, func(i, j int) bool {
+		return events[i].CreatedAt.Time().After(events[j].CreatedAt.Time())
+	})
+	
+	// Display only top n events
+	for i, ev := range events {
+		if i >= n {
+			break
+		}
+		cfg.PrintEvent(ev, j, extra)
+	}
+	
 	return nil
 }
 
