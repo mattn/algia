@@ -688,10 +688,6 @@ func (cfg *Config) StreamEvents(filter nostr.Filter, closeOnEOSE bool, callback 
 		return
 	}
 
-	// Use pool to subscribe to events
-	seen := make(map[string]bool)
-	var mu sync.Mutex
-
 	// Choose SubMany or SubManyEose based on closeOnEOSE flag
 	var eventChan chan nostr.RelayEvent
 	if closeOnEOSE {
@@ -705,14 +701,6 @@ func (cfg *Config) StreamEvents(filter nostr.Filter, closeOnEOSE bool, callback 
 		if ev == nil {
 			continue
 		}
-
-		mu.Lock()
-		if seen[ev.ID] {
-			mu.Unlock()
-			continue
-		}
-		seen[ev.ID] = true
-		mu.Unlock()
 
 		if ev.Kind == nostr.KindEncryptedDirectMessage || ev.Kind == nostr.KindCategorizedBookmarksList {
 			if err := cfg.Decode(ev); err != nil {
