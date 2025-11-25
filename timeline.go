@@ -960,20 +960,22 @@ func doTimeline(cCtx *cli.Context) error {
 
 	// Collect all events, then sort and display top n
 	events := []*nostr.Event{}
-	cfg.StreamEvents(filter, true, func(ev *nostr.Event) {
+	cfg.StreamEvents(filter, true, func(ev *nostr.Event) bool {
 		events = append(events, ev)
+		return true
 	})
 
 	// Sort by timestamp descending (newest first)
 	sort.Slice(events, func(i, j int) bool {
-		return events[i].CreatedAt.Time().After(events[j].CreatedAt.Time())
+		return events[j].CreatedAt.Time().After(events[i].CreatedAt.Time())
 	})
 
+	if len(events) > n {
+		events = events[len(events)-n:]
+	}
+
 	// Display only top n events
-	for i, ev := range events {
-		if i >= n {
-			break
-		}
+	for _, ev := range events {
 		cfg.PrintEvent(ev, j, extra)
 	}
 

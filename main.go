@@ -147,7 +147,15 @@ func loadConfig(profile string) (*Config, error) {
 		cfg.FollowList = []string{}
 	}
 	// Initialize pool with read relays
-	cfg.pool = nostr.NewSimplePool(context.Background())
+	cfg.pool = nostr.NewSimplePool(context.Background(),
+		nostr.WithAuthHandler(func(ctx context.Context, authEvent nostr.RelayEvent) error {
+			if _, s, err := nip19.Decode(cfg.PrivateKey); err == nil {
+				return authEvent.Sign(s.(string))
+			} else {
+				return err
+			}
+		}),
+	)
 	return &cfg, nil
 }
 
@@ -163,8 +171,10 @@ func (cfg *Config) GetFollows(profile string) (map[string]Profile, error) {
 	}
 
 	// get followers
-	if len(cfg.FollowList) == 0 || len(cfg.profiles) == 0 {
-		ctx := context.Background()
+	followListOld := cfg.Updated.IsZero() || time.Since(cfg.Updated) > 24*time.Hour
+	if len(cfg.FollowList) == 0 || len(cfg.profiles) == 0 || followListOld {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
 		relays := []string{}
 		for k, v := range cfg.Relays {
 			if v.Read {
@@ -227,6 +237,7 @@ func (cfg *Config) GetFollows(profile string) (map[string]Profile, error) {
 				}
 			}
 			cfg.FollowList = follows
+			cfg.Updated = time.Now()
 
 			if cfg.verbose {
 				fmt.Printf("found %d followers\n", len(follows))
@@ -386,7 +397,8 @@ func (cfg *Config) FindRelay(ctx context.Context, r Relay) *nostr.Relay {
 // Do is
 func (cfg *Config) Do(r Relay, f func(context.Context, *nostr.Relay) bool) {
 	var wg sync.WaitGroup
-	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
 	for k, v := range cfg.Relays {
 		if r.Write && !v.Write {
 			continue
@@ -628,7 +640,8 @@ func (cfg *Config) PrintEvent(ev *nostr.Event, j, extra bool) {
 
 // Events is
 func (cfg *Config) Events(filter nostr.Filter) []*nostr.Event {
-	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
 
 	// Get read relays
 	relays := []string{}
@@ -678,8 +691,9 @@ func (cfg *Config) Events(filter nostr.Filter) []*nostr.Event {
 
 // StreamEvents streams events as they arrive, calling the callback for each new event
 // If closeOnEOSE is true, it stops after receiving EOSE from all relays
-func (cfg *Config) StreamEvents(filter nostr.Filter, closeOnEOSE bool, callback func(*nostr.Event)) {
-	ctx := context.Background()
+func (cfg *Config) StreamEvents(filter nostr.Filter, closeOnEOSE bool, callback func(*nostr.Event) bool) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
 
 	// Get read relays
 	relays := []string{}
@@ -716,7 +730,9 @@ func (cfg *Config) StreamEvents(filter nostr.Filter, closeOnEOSE bool, callback 
 				continue
 			}
 		}
-		callback(ev)
+		if callback(ev) == false {
+			return
+		}
 	}
 }
 
