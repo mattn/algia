@@ -27,6 +27,9 @@ func doProfile(cCtx *cli.Context) error {
 			if pub, err = nostr.GetPublicKey(s.(string)); err != nil {
 				return err
 			}
+			if user, err = nip19.EncodePublicKey(pub); err != nil {
+				return err
+			}
 		} else {
 			return err
 		}
@@ -38,26 +41,14 @@ func doProfile(cCtx *cli.Context) error {
 		}
 	}
 
-	// get set-metadata
-	filter := nostr.Filter{
-		Kinds:   []int{nostr.KindProfileMetadata},
-		Authors: []string{pub},
-		Limit:   1,
-	}
-
-	evs := cfg.Events(filter)
-	if len(evs) == 0 {
-		return errors.New("cannot find user")
+	profile, err := cfg.GetProfile(user)
+	if err != nil {
+		return err
 	}
 
 	if j {
-		fmt.Fprintln(os.Stdout, evs[0].Content)
+		fmt.Fprintln(os.Stdout, profile)
 		return nil
-	}
-	var profile Profile
-	err := json.Unmarshal([]byte(evs[0].Content), &profile)
-	if err != nil {
-		return err
 	}
 	npub, err := nip19.EncodePublicKey(pub)
 	if err != nil {

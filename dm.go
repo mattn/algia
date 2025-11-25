@@ -25,21 +25,21 @@ func doDMList(cCtx *cli.Context) error {
 	cfg := cCtx.App.Metadata["config"].(*Config)
 
 	var sk string
-	var npub string
+	var pub string
 	var err error
 	if _, s, err := nip19.Decode(cfg.PrivateKey); err == nil {
 		sk = s.(string)
 	} else {
 		return err
 	}
-	if npub, err = nostr.GetPublicKey(sk); err != nil {
+	if pub, err = nostr.GetPublicKey(sk); err != nil {
 		return err
 	}
 
 	// get timeline
 	filter := nostr.Filter{
 		Kinds:   []int{nostr.KindEncryptedDirectMessage},
-		Authors: []string{npub},
+		Authors: []string{pub},
 		Limit:   9999,
 	}
 
@@ -57,9 +57,11 @@ func doDMList(cCtx *cli.Context) error {
 			continue
 		}
 		m[p] = struct{}{}
-		npubEncoded, _ := nip19.EncodePublicKey(p)
-
-		profile, err := cfg.GetProfile(p)
+		npub, err := nip19.EncodePublicKey(p)
+		if err != nil {
+			continue
+		}
+		profile, err := cfg.GetProfile(npub)
 		if err == nil {
 			name := profile.DisplayName
 			if name == "" {
@@ -67,12 +69,12 @@ func doDMList(cCtx *cli.Context) error {
 			}
 			users = append(users, entry{
 				Name:   name,
-				Pubkey: npubEncoded,
+				Pubkey: npub,
 			})
 		} else {
 			users = append(users, entry{
-				Name:   npubEncoded,
-				Pubkey: npubEncoded,
+				Name:   npub,
+				Pubkey: npub,
 			})
 		}
 	}

@@ -29,11 +29,12 @@ var revision = "HEAD"
 
 // Relay is
 type Relay struct {
-	Read   bool `json:"read"`
-	Write  bool `json:"write"`
-	Search bool `json:"search"`
-	Global bool `json:"global"`
-	DM     bool `json:"dm"`
+	Read     bool `json:"read"`
+	Write    bool `json:"write"`
+	Search   bool `json:"search"`
+	Global   bool `json:"global"`
+	DM       bool `json:"dm"`
+	Bookmark bool `json:"bm"`
 }
 
 // Config is
@@ -288,8 +289,7 @@ func (cfg *Config) CheckUpdate(profile string) (map[string]Profile, error) {
 			}
 		}
 
-		cfg.Updated = time.Time{}
-		if err := cfg.save(profile); err != nil {
+		if err := cfg.saveConfig(profile); err != nil {
 			return nil, err
 		}
 	}
@@ -343,13 +343,13 @@ func (cfg *Config) GetProfile(npub string) (*Profile, error) {
 	}
 
 	// Query for kind 0 (profile metadata)
-	events := cfg.pool.QuerySingle(ctx, relays, nostr.Filter{
+	ev := cfg.pool.QuerySingle(ctx, relays, nostr.Filter{
 		Kinds:   []int{nostr.KindProfileMetadata},
 		Authors: []string{pub},
 		Limit:   1,
 	})
 
-	if events == nil {
+	if ev == nil {
 		// If fetch fails but we have a stale cache, return it
 		if profile, ok := cfg.profiles[pub]; ok {
 			return &profile, nil
@@ -358,7 +358,7 @@ func (cfg *Config) GetProfile(npub string) (*Profile, error) {
 	}
 
 	var profile Profile
-	if err := json.Unmarshal([]byte(events.Content), &profile); err != nil {
+	if err := json.Unmarshal([]byte(ev.Content), &profile); err != nil {
 		return nil, fmt.Errorf("failed to parse profile: %w", err)
 	}
 
@@ -368,33 +368,6 @@ func (cfg *Config) GetProfile(npub string) (*Profile, error) {
 	cfg.profileChanged = true
 
 	return &profile, nil
-}
-
-// FindRelay is
-func (cfg *Config) FindRelay(ctx context.Context, r Relay) *nostr.Relay {
-	for k, v := range cfg.Relays {
-		if r.Write && !v.Write {
-			continue
-		}
-		if !cfg.tempRelay && r.Search && !v.Search {
-			continue
-		}
-		if !r.Write && !v.Read {
-			continue
-		}
-		if cfg.verbose {
-			fmt.Printf("trying relay: %s\n", k)
-		}
-		relay, err := nostr.RelayConnect(ctx, k)
-		if err != nil {
-			if cfg.verbose {
-				fmt.Fprintln(os.Stderr, err.Error())
-			}
-			continue
-		}
-		return relay
-	}
-	return nil
 }
 
 // Do is
@@ -434,11 +407,7 @@ func (cfg *Config) Do(r Relay, f func(context.Context, *nostr.Relay) bool) {
 	wg.Wait()
 }
 
-func (cfg *Config) save(profile string) error {
-	if !cfg.Updated.IsZero() && time.Since(cfg.Updated) < 24*time.Hour {
-		return nil
-	}
-
+func (cfg *Config) saveConfig(profile string) error {
 	if cfg.tempRelay {
 		return nil
 	}
@@ -668,24 +637,30 @@ func (cfg *Config) Events(filter nostr.Filter) []*nostr.Event {
 	relays := []string{}
 	if includeKind(filter.Kinds, nostr.KindTextNote, nostr.KindEncryptedDirectMessage) {
 		for k, v := range cfg.Relays {
-			if v.DM {
-				relays = append(relays, k)
+			if !v.DM {
+				continue
 			}
+			relays = append(relays, k)
 		}
-		if len(relays) == 0 {
-			for k, v := range cfg.Relays {
-				if v.Read {
-					relays = append(relays, k)
-				}
+	} else if includeKind(filter.Kinds, nostr.KindCategorizedBookmarksList) {
+		for k, v := range cfg.Relays {
+			if !v.Bookmark {
+				continue
 			}
+			relays = append(relays, k)
 		}
-	} else {
+	} else if filter.Search != "" {
+		for k, v := range cfg.Relays {
+			if !v.Read || !v.Search {
+				continue
+			}
+			relays = append(relays, k)
+		}
+	}
+
+	if len(relays) == 0 {
 		for k, v := range cfg.Relays {
 			if v.Read {
-				// Skip search relays unless filter has search
-				if filter.Search != "" && !v.Search {
-					continue
-				}
 				relays = append(relays, k)
 			}
 		}
