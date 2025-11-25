@@ -77,11 +77,16 @@ func doDMList(cCtx *cli.Context) error {
 	users := []entry{}
 	m := map[string]struct{}{}
 	for _, ev := range evs {
-		tag := ev.Tags.GetFirst([]string{"p"})
-		if tag == nil {
-			continue
+		var p string
+		if ev.PubKey == pub {
+			tag := ev.Tags.GetFirst([]string{"p"})
+			if tag == nil {
+				continue
+			}
+			p = tag.Value()
+		} else {
+			p = ev.PubKey
 		}
-		p := tag.Value()
 		if _, ok := m[p]; ok {
 			continue
 		}
@@ -262,8 +267,11 @@ func doDMPost(cCtx *cli.Context) error {
 		if err != nil {
 			return err
 		}
+		if err := ev.Sign(sk); err != nil {
+			return err
+		}
 	} else {
-		ev.Kind = 1059
+		ev.Kind = 14
 		eev, err := nip59.GiftWrap(ev, pub,
 			func(plaintext string) (string, error) {
 				conversationKey, err := nip44.GenerateConversationKey(pub, sk)
@@ -285,9 +293,6 @@ func doDMPost(cCtx *cli.Context) error {
 			return err
 		}
 		ev = eev
-	}
-	if err := ev.Sign(sk); err != nil {
-		return err
 	}
 
 	var success atomic.Int64

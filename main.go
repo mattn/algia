@@ -308,6 +308,18 @@ func (cfg *Config) CheckUpdate(profile string) (map[string]Profile, error) {
 
 // GetProfile retrieves a profile by npub, fetching from nostr if not cached
 func (cfg *Config) GetProfile(npub string) (*Profile, error) {
+	if npub == "" {
+		if _, s, err := nip19.Decode(cfg.PrivateKey); err == nil {
+			if pub, err := nostr.GetPublicKey(s.(string)); err != nil {
+				return nil, err
+			} else if np, err := nip19.EncodePublicKey(pub); err == nil {
+				npub = np
+			}
+		} else {
+			return nil, err
+		}
+	}
+
 	// Decode npub to get public key
 	var pub string
 	if prefix, decoded, err := nip19.Decode(npub); err == nil {
@@ -322,7 +334,7 @@ func (cfg *Config) GetProfile(npub string) (*Profile, error) {
 	}
 
 	// Check cache first and see if it's fresh (less than 24 hours old)
-	if profile, ok := cfg.profiles[pub]; ok {
+	if profile, ok := cfg.profiles[npub]; ok {
 		if !profile.FetchedAt.IsZero() && time.Since(profile.FetchedAt) < 24*time.Hour {
 			return &profile, nil
 		}
@@ -709,10 +721,11 @@ func (cfg *Config) QueryEvents(filters nostr.Filters) ([]*nostr.Event, error) {
 					}
 					return nip44.Decrypt(ciphertext, conversationKey)
 				})
-				if err != nil {
-					continue
+				if err == nil {
+					ev = &eev
+				} else if cfg.verbose {
+					fmt.Fprintf(os.Stderr, "GiftUnwrap failed for event %s: %v\n", ev.ID, err)
 				}
-				ev = &eev
 			}
 			seen[ev.ID] = ev
 		}

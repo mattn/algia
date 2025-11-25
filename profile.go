@@ -91,11 +91,21 @@ func doUpdateProfile(cCtx *cli.Context) error {
 	if err != nil {
 		return err
 	}
-	if len(evs) == 0 {
-		return errors.New("cannot find user")
-	}
 
-	ev := evs[0]
+	var ev *nostr.Event
+	if len(evs) > 0 {
+		ev = evs[0]
+	} else {
+		ev = &nostr.Event{
+			Kind: nostr.KindProfileMetadata,
+		}
+		profile, err := cfg.GetProfile("")
+		if err == nil {
+			if b, err := json.MarshalIndent(profile, "", "  "); err == nil {
+				ev.Content = string(b)
+			}
+		}
+	}
 
 	var profile map[string]any
 	err = json.Unmarshal([]byte(ev.Content), &profile)
