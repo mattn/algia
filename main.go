@@ -32,7 +32,8 @@ type Relay struct {
 	Read   bool `json:"read"`
 	Write  bool `json:"write"`
 	Search bool `json:"search"`
-	Global bool `json:"global,omitempty"`
+	Global bool `json:"global"`
+	DM     bool `json:"dm"`
 }
 
 // Config is
@@ -639,6 +640,17 @@ func (cfg *Config) PrintEvent(ev *nostr.Event, j, extra bool) {
 	fmt.Println(ev.Content)
 }
 
+func includeKind(kinds []int, candidates ...int) bool {
+	for _, k := range kinds {
+		for _, c := range candidates {
+			if k == c {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 // Events is
 func (cfg *Config) Events(filter nostr.Filter) []*nostr.Event {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -646,13 +658,28 @@ func (cfg *Config) Events(filter nostr.Filter) []*nostr.Event {
 
 	// Get read relays
 	relays := []string{}
-	for k, v := range cfg.Relays {
-		if v.Read {
-			// Skip search relays unless filter has search
-			if filter.Search != "" && !v.Search {
-				continue
+	if includeKind(filter.Kinds, nostr.KindTextNote, nostr.KindEncryptedDirectMessage) {
+		for k, v := range cfg.Relays {
+			if v.DM {
+				relays = append(relays, k)
 			}
-			relays = append(relays, k)
+		}
+		if len(relays) == 0 {
+			for k, v := range cfg.Relays {
+				if v.Read {
+					relays = append(relays, k)
+				}
+			}
+		}
+	} else {
+		for k, v := range cfg.Relays {
+			if v.Read {
+				// Skip search relays unless filter has search
+				if filter.Search != "" && !v.Search {
+					continue
+				}
+				relays = append(relays, k)
+			}
 		}
 	}
 
@@ -1059,9 +1086,12 @@ func main() {
 			}
 			if cfg, ok := cCtx.App.Metadata["config"].(*Config); ok {
 				if profile, ok := cCtx.App.Metadata["profile"].(string); ok {
-					return cfg.saveProfiles(profile)
+					if err := cfg.saveProfiles(profile); err != nil {
+						fmt.Fprintln(os.Stderr, err)
+					}
 				}
 			}
+
 			return nil
 		},
 	}
