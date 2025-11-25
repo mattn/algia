@@ -17,6 +17,8 @@ import (
 	"github.com/nbd-wtf/go-nostr"
 	"github.com/nbd-wtf/go-nostr/nip04"
 	"github.com/nbd-wtf/go-nostr/nip19"
+	"github.com/nbd-wtf/go-nostr/nip44"
+	"github.com/nbd-wtf/go-nostr/nip59"
 	"github.com/nbd-wtf/go-nostr/sdk"
 )
 
@@ -45,6 +47,11 @@ func doDMList(cCtx *cli.Context) error {
 			Limit:   9999,
 		},
 		{
+			Kinds: []int{nostr.KindEncryptedDirectMessage},
+			Tags:  nostr.TagMap{"p": []string{pub}},
+			Limit: 9999,
+		},
+		{
 			Kinds: []int{1059},
 			Tags:  nostr.TagMap{"p": []string{pub}},
 			Limit: 9999,
@@ -56,6 +63,13 @@ func doDMList(cCtx *cli.Context) error {
 		return err
 	}
 
+	if cfg.verbose {
+		fmt.Fprintf(os.Stderr, "Total events received: %d\n", len(evs))
+		for i, ev := range evs {
+			fmt.Fprintf(os.Stderr, "Event %d: kind=%d, author=%s, tags=%v\n", i, ev.Kind, ev.PubKey, ev.Tags)
+		}
+	}
+
 	type entry struct {
 		Name   string `json:"name"`
 		Pubkey string `json:"pubkey"`
@@ -63,7 +77,11 @@ func doDMList(cCtx *cli.Context) error {
 	users := []entry{}
 	m := map[string]struct{}{}
 	for _, ev := range evs {
-		p := ev.Tags.GetFirst([]string{"p"}).Value()
+		tag := ev.Tags.GetFirst([]string{"p"})
+		if tag == nil {
+			continue
+		}
+		p := tag.Value()
 		if _, ok := m[p]; ok {
 			continue
 		}
@@ -182,6 +200,7 @@ func doDMPost(cCtx *cli.Context) error {
 		return cli.ShowSubcommandHelp(cCtx)
 	}
 	sensitive := cCtx.String("sensitive")
+	useNip04 := cCtx.Bool("nip04")
 
 	cfg := cCtx.App.Metadata["config"].(*Config)
 
@@ -232,15 +251,40 @@ func doDMPost(cCtx *cli.Context) error {
 
 	ev.Tags = ev.Tags.AppendUnique(nostr.Tag{"p", pub})
 	ev.CreatedAt = nostr.Now()
-	ev.Kind = nostr.KindEncryptedDirectMessage
 
-	ss, err := nip04.ComputeSharedSecret(pub, sk)
-	if err != nil {
-		return err
-	}
-	ev.Content, err = nip04.Encrypt(ev.Content, ss)
-	if err != nil {
-		return err
+	if useNip04 {
+		ev.Kind = nostr.KindEncryptedDirectMessage
+		ss, err := nip04.ComputeSharedSecret(pub, sk)
+		if err != nil {
+			return err
+		}
+		ev.Content, err = nip04.Encrypt(ev.Content, ss)
+		if err != nil {
+			return err
+		}
+	} else {
+		ev.Kind = 1059
+		eev, err := nip59.GiftWrap(ev, pub,
+			func(plaintext string) (string, error) {
+				conversationKey, err := nip44.GenerateConversationKey(pub, sk)
+				if err != nil {
+					return "", err
+				}
+				encrypted, err := nip44.Encrypt(plaintext, conversationKey)
+				if err != nil {
+					return "", err
+				}
+				return encrypted, nil
+			},
+			func(ev *nostr.Event) error {
+				return ev.Sign(sk)
+			},
+			nil,
+		)
+		if err != nil {
+			return err
+		}
+		ev = eev
 	}
 	if err := ev.Sign(sk); err != nil {
 		return err

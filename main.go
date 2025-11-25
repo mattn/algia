@@ -378,17 +378,19 @@ func (cfg *Config) Do(r Relay, f func(context.Context, *nostr.Relay) bool) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	for k, v := range cfg.Relays {
-		if r.Write && !v.Write {
-			continue
-		}
-		if r.Search && !v.Search {
-			continue
-		}
-		if !r.Write && !v.Read {
-			continue
-		}
-		if r.DM && !v.DM {
-			continue
+		if !cfg.tempRelay {
+			if r.Write && !v.Write {
+				continue
+			}
+			if r.Search && !v.Search {
+				continue
+			}
+			if !r.Read && !v.Read {
+				continue
+			}
+			if r.DM && !v.DM {
+				continue
+			}
 		}
 		wg.Add(1)
 		go func(wg *sync.WaitGroup, k string, v Relay) {
@@ -673,6 +675,7 @@ func (cfg *Config) QueryEvents(filters nostr.Filters) ([]*nostr.Event, error) {
 
 	if cfg.verbose {
 		fmt.Println(relays)
+		fmt.Printf("Filters: %+v\n", filters)
 	}
 
 	var sk string
@@ -1021,6 +1024,7 @@ func main() {
 					&cli.StringFlag{Name: "u", Value: "", Usage: "DM user", Required: true},
 					&cli.BoolFlag{Name: "stdin"},
 					&cli.StringFlag{Name: "sensitive"},
+					&cli.BoolFlag{Name: "nip04"},
 				},
 				Usage:     "post new DM note",
 				UsageText: "algia post [note text]",
