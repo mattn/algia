@@ -702,14 +702,6 @@ func doSearch(cCtx *cli.Context) error {
 
 	cfg := cCtx.App.Metadata["config"].(*Config)
 
-	// get followers
-	if !(j && !extra) {
-		_, err := cfg.GetFollows(cCtx.String("a"))
-		if err != nil {
-			return err
-		}
-	}
-
 	// get timeline
 	filter := nostr.Filter{
 		Kinds:  []int{nostr.KindTextNote},
@@ -838,10 +830,6 @@ func doStream(cCtx *cli.Context) error {
 		follows = nil
 	} else {
 		if f {
-			_, err := cfg.GetFollows(cCtx.String("a"))
-			if err != nil {
-				return err
-			}
 			follows = append(follows, cfg.FollowList...)
 		} else {
 			for _, author := range authors {
@@ -940,11 +928,6 @@ func doTimeline(cCtx *cli.Context) error {
 
 	cfg := cCtx.App.Metadata["config"].(*Config)
 
-	// get followers
-	_, err := cfg.GetFollows(cCtx.String("a"))
-	if err != nil {
-		return err
-	}
 	var follows []string
 	if global {
 		follows = nil

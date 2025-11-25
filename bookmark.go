@@ -16,14 +16,9 @@ func doBMList(cCtx *cli.Context) error {
 
 	cfg := cCtx.App.Metadata["config"].(*Config)
 
-	// get followers
-	_, err := cfg.GetFollows(cCtx.String("a"))
-	if err != nil {
-		return err
-	}
-
 	var sk string
 	var npub string
+	var err error
 	if _, s, err := nip19.Decode(cfg.PrivateKey); err == nil {
 		sk = s.(string)
 	} else {

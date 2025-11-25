@@ -161,8 +161,8 @@ func loadConfig(profile string) (*Config, error) {
 	return &cfg, nil
 }
 
-// GetFollows is
-func (cfg *Config) GetFollows(profile string) (map[string]Profile, error) {
+// CheckUpdate is
+func (cfg *Config) CheckUpdate(profile string) (map[string]Profile, error) {
 	var pub string
 	if _, s, err := nip19.Decode(cfg.PrivateKey); err == nil {
 		if pub, err = nostr.GetPublicKey(s.(string)); err != nil {
@@ -173,8 +173,8 @@ func (cfg *Config) GetFollows(profile string) (map[string]Profile, error) {
 	}
 
 	// get followers
-	followListOld := cfg.Updated.IsZero() || time.Since(cfg.Updated) > 24*time.Hour
-	if len(cfg.FollowList) == 0 || len(cfg.profiles) == 0 || followListOld {
+	configIsOld := cfg.Updated.IsZero() || time.Since(cfg.Updated) > 24*time.Hour
+	if len(cfg.FollowList) == 0 || len(cfg.profiles) == 0 || configIsOld {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 		relays := []string{}
@@ -288,6 +288,7 @@ func (cfg *Config) GetFollows(profile string) (map[string]Profile, error) {
 			}
 		}
 
+		cfg.Updated = time.Time{}
 		if err := cfg.save(profile); err != nil {
 			return nil, err
 		}
@@ -434,6 +435,10 @@ func (cfg *Config) Do(r Relay, f func(context.Context, *nostr.Relay) bool) {
 }
 
 func (cfg *Config) save(profile string) error {
+	if !cfg.Updated.IsZero() && time.Since(cfg.Updated) < 24*time.Hour {
+		return nil
+	}
+
 	if cfg.tempRelay {
 		return nil
 	}
@@ -692,6 +697,9 @@ func (cfg *Config) Events(filter nostr.Filter) []*nostr.Event {
 
 	seen := make(map[string]*nostr.Event)
 
+	if cfg.verbose {
+		fmt.Println(relays)
+	}
 	for relayEvent := range cfg.pool.SubManyEose(ctx, relays, nostr.Filters{filter}) {
 		if relayEvent.Event == nil {
 			continue
@@ -1080,6 +1088,11 @@ func main() {
 					}
 				}
 				cfg.tempRelay = true
+			}
+
+			_, err = cfg.CheckUpdate(cCtx.String("a"))
+			if err != nil {
+				return err
 			}
 			return nil
 		},
