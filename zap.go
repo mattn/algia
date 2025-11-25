@@ -140,12 +140,6 @@ func pay(cfg *Config, invoice string) error {
 
 // ZapInfo is
 func (cfg *Config) ZapInfo(pub string) (*Lnurlp, error) {
-	relay := cfg.FindRelay(context.Background(), Relay{Read: true})
-	if relay == nil {
-		return nil, errors.New("cannot connect relays")
-	}
-	defer relay.Close()
-
 	// get set-metadata
 	filter := nostr.Filter{
 		Kinds:   []int{nostr.KindProfileMetadata},

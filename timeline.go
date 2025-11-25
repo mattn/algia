@@ -821,12 +821,6 @@ func doStream(cCtx *cli.Context) error {
 
 	cfg := cCtx.App.Metadata["config"].(*Config)
 
-	relay := cfg.FindRelay(context.Background(), Relay{Read: true})
-	if relay == nil {
-		return errors.New("cannot connect relays")
-	}
-	defer relay.Close()
-
 	var sk string
 	if _, s, err := nip19.Decode(cfg.PrivateKey); err == nil {
 		sk = s.(string)
@@ -877,23 +871,36 @@ func doStream(cCtx *cli.Context) error {
 		}
 		filter.Tags[name] = tag
 	}
-	sub, err := relay.Subscribe(context.Background(), nostr.Filters{filter})
-	if err != nil {
-		return err
+
+	relays := []string{}
+	for rurl, relay := range cfg.Relays {
+		if !relay.Global {
+			continue
+		}
+		relays = append(relays, rurl)
 	}
+	if len(relays) == 0 {
+		for rurl, relay := range cfg.Relays {
+			if !relay.Read {
+				continue
+			}
+			relays = append(relays, rurl)
+		}
+	}
+	sub := cfg.pool.SubMany(context.Background(), relays, nostr.Filters{filter})
 
 	if reply == "" {
 		if j {
-			for ev := range sub.Events {
+			for ev := range sub {
 				json.NewEncoder(os.Stdout).Encode(ev)
 			}
 		} else {
-			for ev := range sub.Events {
-				cfg.PrintEvent(ev, j, false)
+			for ev := range sub {
+				cfg.PrintEvent(ev.Event, j, false)
 			}
 		}
 	} else {
-		for ev := range sub.Events {
+		for ev := range sub {
 			if re != nil && !re.MatchString(ev.Content) {
 				continue
 			}

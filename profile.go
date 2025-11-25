@@ -20,11 +20,6 @@ func doProfile(cCtx *cli.Context) error {
 	j := cCtx.Bool("json")
 
 	cfg := cCtx.App.Metadata["config"].(*Config)
-	relay := cfg.FindRelay(context.Background(), Relay{Read: true})
-	if relay == nil {
-		return errors.New("cannot connect relays")
-	}
-	defer relay.Close()
 
 	var pub string
 	if user == "" {
@@ -82,11 +77,6 @@ func doProfile(cCtx *cli.Context) error {
 
 func doUpdateProfile(cCtx *cli.Context) error {
 	cfg := cCtx.App.Metadata["config"].(*Config)
-	relay := cfg.FindRelay(context.Background(), Relay{Read: true})
-	if relay == nil {
-		return errors.New("cannot connect relays")
-	}
-	defer relay.Close()
 
 	var pub string
 	if _, s, err := nip19.Decode(cfg.PrivateKey); err == nil {
