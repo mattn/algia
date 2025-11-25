@@ -615,7 +615,7 @@ func (cfg *Config) PrintEvent(ev *nostr.Event, j, extra bool) {
 	}
 
 	// Check cache only, don't fetch
-	if profile, ok := cfg.profiles[ev.PubKey]; ok {
+	if profile, err := cfg.GetProfile(ev.PubKey); err == nil {
 		color.Set(color.FgHiRed)
 		fmt.Print(profile.Name)
 	} else {
@@ -765,6 +765,7 @@ func main() {
 					&cli.BoolFlag{Name: "json", Usage: "output JSON"},
 					&cli.BoolFlag{Name: "extra", Usage: "extra JSON"},
 					&cli.BoolFlag{Name: "article", Usage: "show articles"},
+					&cli.BoolFlag{Name: "global", Usage: "show global timeline"},
 				},
 				Action: doTimeline,
 			},
@@ -778,6 +779,7 @@ func main() {
 					&cli.StringFlag{Name: "pattern"},
 					&cli.StringFlag{Name: "reply"},
 					&cli.StringSliceFlag{Name: "tag"},
+					&cli.BoolFlag{Name: "global", Usage: "show global stream"},
 				},
 				Action: doStream,
 			},

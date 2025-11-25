@@ -808,6 +808,7 @@ func doStream(cCtx *cli.Context) error {
 	reply := cCtx.String("reply")
 	tags := cCtx.StringSlice("tag")
 	j := cCtx.Bool("json")
+	global := cCtx.Bool("global")
 
 	var re *regexp.Regexp
 	if pattern != "" {
@@ -839,18 +840,22 @@ func doStream(cCtx *cli.Context) error {
 
 	// get followers
 	var follows []string
-	if f {
-		_, err := cfg.GetFollows(cCtx.String("a"))
-		if err != nil {
-			return err
-		}
-		follows = append(follows, cfg.FollowList...)
+	if global {
+		follows = nil
 	} else {
-		for _, author := range authors {
-			if pp := sdk.InputToProfile(context.TODO(), author); pp != nil {
-				follows = append(follows, pp.PublicKey)
-			} else {
-				return fmt.Errorf("failed to parse pubkey from '%s'", author)
+		if f {
+			_, err := cfg.GetFollows(cCtx.String("a"))
+			if err != nil {
+				return err
+			}
+			follows = append(follows, cfg.FollowList...)
+		} else {
+			for _, author := range authors {
+				if pp := sdk.InputToProfile(context.TODO(), author); pp != nil {
+					follows = append(follows, pp.PublicKey)
+				} else {
+					return fmt.Errorf("failed to parse pubkey from '%s'", author)
+				}
 			}
 		}
 	}
@@ -924,6 +929,7 @@ func doTimeline(cCtx *cli.Context) error {
 	j := cCtx.Bool("json")
 	extra := cCtx.Bool("extra")
 	article := cCtx.Bool("article")
+	global := cCtx.Bool("global")
 
 	cfg := cCtx.App.Metadata["config"].(*Config)
 
@@ -933,18 +939,22 @@ func doTimeline(cCtx *cli.Context) error {
 		return err
 	}
 	var follows []string
-	if u == "" {
-		follows = append(follows, cfg.FollowList...)
-		if len(follows) == 0 {
-			return fmt.Errorf("no follows found. Please follow someone first.")
-		}
+	if global {
+		follows = nil
 	} else {
-		if pp := sdk.InputToProfile(context.TODO(), u); pp != nil {
-			u = pp.PublicKey
+		if u == "" {
+			follows = append(follows, cfg.FollowList...)
+			if len(follows) == 0 {
+				return fmt.Errorf("no follows found. Please follow someone first.")
+			}
 		} else {
-			return fmt.Errorf("failed to parse pubkey from '%s'", u)
+			if pp := sdk.InputToProfile(context.TODO(), u); pp != nil {
+				u = pp.PublicKey
+			} else {
+				return fmt.Errorf("failed to parse pubkey from '%s'", u)
+			}
+			follows = []string{u}
 		}
-		follows = []string{u}
 	}
 
 	kind := nostr.KindTextNote
