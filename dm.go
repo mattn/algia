@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"sort"
 	"strings"
 	"sync/atomic"
 
@@ -100,28 +101,28 @@ func doDMList(cCtx *cli.Context) error {
 
 func doDMTimeline(cCtx *cli.Context) error {
 	u := cCtx.String("u")
+	n := cCtx.Int("n")
 	j := cCtx.Bool("json")
 	extra := cCtx.Bool("extra")
 
 	cfg := cCtx.App.Metadata["config"].(*Config)
 
 	var sk string
-	var npub string
+	var pk string
 	var err error
 	if _, s, err := nip19.Decode(cfg.PrivateKey); err == nil {
 		sk = s.(string)
 	} else {
 		return err
 	}
-	if npub, err = nostr.GetPublicKey(sk); err != nil {
+	if pk, err = nostr.GetPublicKey(sk); err != nil {
 		return err
 	}
 
-	if u == "me" {
-		u = npub
-	}
 	var pub string
-	if pp := sdk.InputToProfile(context.TODO(), u); pp != nil {
+	if u == "me" {
+		pub = pk
+	} else if pp := sdk.InputToProfile(context.TODO(), u); pp != nil {
 		pub = pp.PublicKey
 	} else {
 		return fmt.Errorf("failed to parse pubkey from '%s'", u)
@@ -130,13 +131,31 @@ func doDMTimeline(cCtx *cli.Context) error {
 	// get timeline
 	filter := nostr.Filter{
 		Kinds:   []int{nostr.KindEncryptedDirectMessage},
-		Authors: []string{npub, pub},
-		Tags:    nostr.TagMap{"p": []string{npub, pub}},
-		Limit:   9999,
+		Authors: []string{pk, pub},
+		Tags:    nostr.TagMap{"p": []string{pk, pub}},
+		Limit:   n,
 	}
 
-	evs := cfg.Events(filter)
-	cfg.PrintEvents(evs, nil, j, extra)
+	// Collect all events, then sort and display top n
+	events := []*nostr.Event{}
+	cfg.StreamEvents(filter, true, func(ev *nostr.Event) bool {
+		events = append(events, ev)
+		return true
+	})
+
+	// Sort by timestamp descending (newest first)
+	sort.Slice(events, func(i, j int) bool {
+		return events[j].CreatedAt.Time().After(events[i].CreatedAt.Time())
+	})
+
+	if len(events) > n {
+		events = events[len(events)-n:]
+	}
+
+	// Display only top n events
+	for _, ev := range events {
+		cfg.PrintEvent(ev, j, extra)
+	}
 	return nil
 }
 

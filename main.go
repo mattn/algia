@@ -711,10 +711,23 @@ func (cfg *Config) StreamEvents(filter nostr.Filter, closeOnEOSE bool, callback 
 
 	// Get read relays
 	relays := []string{}
-	for k, v := range cfg.Relays {
-		if v.Read {
-			// Skip search relays unless filter has search
-			if filter.Search != "" && !v.Search {
+	if includeKind(filter.Kinds, nostr.KindTextNote, nostr.KindEncryptedDirectMessage) {
+		for k, v := range cfg.Relays {
+			if !v.DM {
+				continue
+			}
+			relays = append(relays, k)
+		}
+	} else if includeKind(filter.Kinds, nostr.KindCategorizedBookmarksList) {
+		for k, v := range cfg.Relays {
+			if !v.Bookmark {
+				continue
+			}
+			relays = append(relays, k)
+		}
+	} else if filter.Search != "" {
+		for k, v := range cfg.Relays {
+			if !v.Read || !v.Search {
 				continue
 			}
 			relays = append(relays, k)
@@ -722,7 +735,11 @@ func (cfg *Config) StreamEvents(filter nostr.Filter, closeOnEOSE bool, callback 
 	}
 
 	if len(relays) == 0 {
-		return
+		for k, v := range cfg.Relays {
+			if v.Read {
+				relays = append(relays, k)
+			}
+		}
 	}
 
 	// Choose SubMany or SubManyEose based on closeOnEOSE flag
@@ -927,6 +944,7 @@ func main() {
 			{
 				Name: "dm-timeline",
 				Flags: []cli.Flag{
+					&cli.IntFlag{Name: "n", Value: 30, Usage: "number of items"},
 					&cli.StringFlag{Name: "u", Value: "", Usage: "DM user", Required: true},
 					&cli.BoolFlag{Name: "json", Usage: "output JSON"},
 					&cli.BoolFlag{Name: "extra", Usage: "extra JSON"},
