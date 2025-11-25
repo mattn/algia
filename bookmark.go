@@ -37,7 +37,10 @@ func doBMList(cCtx *cli.Context) error {
 	}
 
 	be := []string{}
-	evs := cfg.Events(filter)
+	evs, err := cfg.QueryEvents(nostr.Filters{filter})
+	if err != nil {
+		return err
+	}
 	for _, ev := range evs {
 		for _, tag := range ev.Tags {
 			if len(tag) > 1 && tag[0] == "e" {
@@ -49,7 +52,10 @@ func doBMList(cCtx *cli.Context) error {
 		Kinds: []int{nostr.KindTextNote},
 		IDs:   be,
 	}
-	eevs := cfg.Events(filter)
+	eevs, err := cfg.QueryEvents(nostr.Filters{filter})
+	if err != nil {
+		return err
+	}
 	cfg.PrintEvents(eevs, nil, j, extra)
 	return nil
 }

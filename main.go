@@ -13,12 +13,14 @@ import (
 	"sync"
 	"time"
 
+	"github.com/nbd-wtf/go-nostr/nip59"
 	"github.com/urfave/cli/v2"
 
 	"github.com/fatih/color"
 	"github.com/nbd-wtf/go-nostr"
 	"github.com/nbd-wtf/go-nostr/nip04"
 	"github.com/nbd-wtf/go-nostr/nip19"
+	"github.com/nbd-wtf/go-nostr/nip44"
 )
 
 const name = "algia"
@@ -488,17 +490,7 @@ func (cfg *Config) saveProfiles(profile string) error {
 }
 
 // Decode is
-func (cfg *Config) Decode(ev *nostr.Event) error {
-	var sk string
-	var pub string
-	if _, s, err := nip19.Decode(cfg.PrivateKey); err == nil {
-		sk = s.(string)
-		if pub, err = nostr.GetPublicKey(s.(string)); err != nil {
-			return err
-		}
-	} else {
-		return err
-	}
+func (cfg *Config) Decode(ev *nostr.Event, sk string, pub string) error {
 	tag := ev.Tags.GetFirst([]string{"p"})
 	sp := pub
 	if tag != nil {
@@ -628,34 +620,41 @@ func includeKind(kinds []int, candidates ...int) bool {
 	return false
 }
 
-// Events is
-func (cfg *Config) Events(filter nostr.Filter) []*nostr.Event {
+// QueryEvents is
+func (cfg *Config) QueryEvents(filters nostr.Filters) ([]*nostr.Event, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
 	// Get read relays
 	relays := []string{}
-	if includeKind(filter.Kinds, nostr.KindTextNote, nostr.KindEncryptedDirectMessage) {
-		for k, v := range cfg.Relays {
-			if !v.DM {
-				continue
+	rmap := make(map[string]struct{})
+	for _, filter := range filters {
+		if includeKind(filter.Kinds, nostr.KindTextNote, nostr.KindEncryptedDirectMessage, 1059) {
+			for k, v := range cfg.Relays {
+				if !v.DM {
+					continue
+				}
+				rmap[k] = struct{}{}
 			}
-			relays = append(relays, k)
-		}
-	} else if includeKind(filter.Kinds, nostr.KindCategorizedBookmarksList) {
-		for k, v := range cfg.Relays {
-			if !v.Bookmark {
-				continue
+		} else if includeKind(filter.Kinds, nostr.KindCategorizedBookmarksList) {
+			for k, v := range cfg.Relays {
+				if !v.Bookmark {
+					continue
+				}
+				rmap[k] = struct{}{}
 			}
-			relays = append(relays, k)
-		}
-	} else if filter.Search != "" {
-		for k, v := range cfg.Relays {
-			if !v.Read || !v.Search {
-				continue
+		} else if filter.Search != "" {
+			for k, v := range cfg.Relays {
+				if !v.Read || !v.Search {
+					continue
+				}
+				rmap[k] = struct{}{}
 			}
-			relays = append(relays, k)
 		}
+	}
+
+	for k := range rmap {
+		relays = append(relays, k)
 	}
 
 	if len(relays) == 0 {
@@ -667,7 +666,7 @@ func (cfg *Config) Events(filter nostr.Filter) []*nostr.Event {
 	}
 
 	if len(relays) == 0 {
-		return nil
+		return nil, errors.New("no read relays available")
 	}
 
 	seen := make(map[string]*nostr.Event)
@@ -675,7 +674,20 @@ func (cfg *Config) Events(filter nostr.Filter) []*nostr.Event {
 	if cfg.verbose {
 		fmt.Println(relays)
 	}
-	for relayEvent := range cfg.pool.SubManyEose(ctx, relays, nostr.Filters{filter}) {
+
+	var sk string
+	var pub string
+	var err error
+	if _, s, err := nip19.Decode(cfg.PrivateKey); err == nil {
+		sk = s.(string)
+	} else {
+		return nil, err
+	}
+	if pub, err = nostr.GetPublicKey(sk); err != nil {
+		return nil, err
+	}
+
+	for relayEvent := range cfg.pool.SubManyEose(ctx, relays, filters) {
 		if relayEvent.Event == nil {
 			continue
 		}
@@ -683,9 +695,21 @@ func (cfg *Config) Events(filter nostr.Filter) []*nostr.Event {
 
 		if _, ok := seen[ev.ID]; !ok {
 			if ev.Kind == nostr.KindEncryptedDirectMessage || ev.Kind == nostr.KindCategorizedBookmarksList {
-				if err := cfg.Decode(ev); err != nil {
+				if err := cfg.Decode(ev, sk, pub); err != nil {
 					continue
 				}
+			} else if ev.Kind == 1059 {
+				eev, err := nip59.GiftUnwrap(*ev, func(otherpubkey, ciphertext string) (string, error) {
+					conversationKey, err := nip44.GenerateConversationKey(otherpubkey, sk)
+					if err != nil {
+						return "", err
+					}
+					return nip44.Decrypt(ciphertext, conversationKey)
+				})
+				if err != nil {
+					continue
+				}
+				ev = &eev
 			}
 			seen[ev.ID] = ev
 		}
@@ -700,38 +724,45 @@ func (cfg *Config) Events(filter nostr.Filter) []*nostr.Event {
 		return evs[i].CreatedAt.Time().Before(evs[j].CreatedAt.Time())
 	})
 
-	return evs
+	return evs, nil
 }
 
 // StreamEvents streams events as they arrive, calling the callback for each new event
 // If closeOnEOSE is true, it stops after receiving EOSE from all relays
-func (cfg *Config) StreamEvents(filter nostr.Filter, closeOnEOSE bool, callback func(*nostr.Event) bool) {
+func (cfg *Config) StreamEvents(filters nostr.Filters, closeOnEOSE bool, callback func(*nostr.Event) bool) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
 	// Get read relays
 	relays := []string{}
-	if includeKind(filter.Kinds, nostr.KindTextNote, nostr.KindEncryptedDirectMessage) {
-		for k, v := range cfg.Relays {
-			if !v.DM {
-				continue
+	rmap := make(map[string]struct{})
+	for _, filter := range filters {
+		if includeKind(filter.Kinds, nostr.KindTextNote, nostr.KindEncryptedDirectMessage, 1059) {
+			for k, v := range cfg.Relays {
+				if !v.DM {
+					continue
+				}
+				rmap[k] = struct{}{}
 			}
-			relays = append(relays, k)
-		}
-	} else if includeKind(filter.Kinds, nostr.KindCategorizedBookmarksList) {
-		for k, v := range cfg.Relays {
-			if !v.Bookmark {
-				continue
+		} else if includeKind(filter.Kinds, nostr.KindCategorizedBookmarksList) {
+			for k, v := range cfg.Relays {
+				if !v.Bookmark {
+					continue
+				}
+				rmap[k] = struct{}{}
 			}
-			relays = append(relays, k)
-		}
-	} else if filter.Search != "" {
-		for k, v := range cfg.Relays {
-			if !v.Read || !v.Search {
-				continue
+		} else if filter.Search != "" {
+			for k, v := range cfg.Relays {
+				if !v.Read || !v.Search {
+					continue
+				}
+				rmap[k] = struct{}{}
 			}
-			relays = append(relays, k)
 		}
+	}
+
+	for k := range rmap {
+		relays = append(relays, k)
 	}
 
 	if len(relays) == 0 {
@@ -742,12 +773,28 @@ func (cfg *Config) StreamEvents(filter nostr.Filter, closeOnEOSE bool, callback 
 		}
 	}
 
+	if len(relays) == 0 {
+		return errors.New("no read relays available")
+	}
+
 	// Choose SubMany or SubManyEose based on closeOnEOSE flag
 	var eventChan chan nostr.RelayEvent
 	if closeOnEOSE {
-		eventChan = cfg.pool.SubManyEose(ctx, relays, nostr.Filters{filter})
+		eventChan = cfg.pool.SubManyEose(ctx, relays, filters)
 	} else {
-		eventChan = cfg.pool.SubMany(ctx, relays, nostr.Filters{filter})
+		eventChan = cfg.pool.SubMany(ctx, relays, filters)
+	}
+
+	var sk string
+	var pub string
+	var err error
+	if _, s, err := nip19.Decode(cfg.PrivateKey); err == nil {
+		sk = s.(string)
+	} else {
+		return errors.New("invalid private key")
+	}
+	if pub, err = nostr.GetPublicKey(sk); err != nil {
+		return err
 	}
 
 	for ie := range eventChan {
@@ -757,14 +804,28 @@ func (cfg *Config) StreamEvents(filter nostr.Filter, closeOnEOSE bool, callback 
 		}
 
 		if ev.Kind == nostr.KindEncryptedDirectMessage || ev.Kind == nostr.KindCategorizedBookmarksList {
-			if err := cfg.Decode(ev); err != nil {
+			if err := cfg.Decode(ev, sk, pub); err != nil {
 				continue
 			}
+		} else if ev.Kind == 1059 {
+			eev, err := nip59.GiftUnwrap(*ev, func(otherpubkey, ciphertext string) (string, error) {
+				conversationKey, err := nip44.GenerateConversationKey(otherpubkey, sk)
+				if err != nil {
+					return "", err
+				}
+				return nip44.Decrypt(ciphertext, conversationKey)
+			})
+			if err != nil {
+				continue
+			}
+			ev = &eev
 		}
 		if callback(ev) == false {
-			return
+			return nil
 		}
 	}
+
+	return nil
 }
 
 func doVersion(cCtx *cli.Context) error {

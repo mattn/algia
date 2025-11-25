@@ -79,13 +79,18 @@ func doUpdateProfile(cCtx *cli.Context) error {
 	}
 
 	// get set-metadata
-	filter := nostr.Filter{
-		Kinds:   []int{nostr.KindProfileMetadata},
-		Authors: []string{pub},
-		Limit:   1,
+	filters := nostr.Filters{
+		{
+			Kinds:   []int{nostr.KindProfileMetadata},
+			Authors: []string{pub},
+			Limit:   1,
+		},
 	}
 
-	evs := cfg.Events(filter)
+	evs, err := cfg.QueryEvents(filters)
+	if err != nil {
+		return err
+	}
 	if len(evs) == 0 {
 		return errors.New("cannot find user")
 	}
@@ -93,7 +98,7 @@ func doUpdateProfile(cCtx *cli.Context) error {
 	ev := evs[0]
 
 	var profile map[string]any
-	err := json.Unmarshal([]byte(ev.Content), &profile)
+	err = json.Unmarshal([]byte(ev.Content), &profile)
 	if err != nil {
 		return err
 	}

@@ -703,13 +703,18 @@ func doSearch(cCtx *cli.Context) error {
 	cfg := cCtx.App.Metadata["config"].(*Config)
 
 	// get timeline
-	filter := nostr.Filter{
-		Kinds:  []int{nostr.KindTextNote},
-		Search: strings.Join(cCtx.Args().Slice(), " "),
-		Limit:  n,
+	filters := nostr.Filters{
+		{
+			Kinds:  []int{nostr.KindTextNote},
+			Search: strings.Join(cCtx.Args().Slice(), " "),
+			Limit:  n,
+		},
 	}
 
-	evs := cfg.Events(filter)
+	evs, err := cfg.QueryEvents(filters)
+	if err != nil {
+		return err
+	}
 	cfg.PrintEvents(evs, nil, j, extra)
 	return nil
 }
@@ -952,15 +957,17 @@ func doTimeline(cCtx *cli.Context) error {
 		kind = nostr.KindArticle
 	}
 	// get timeline
-	filter := nostr.Filter{
-		Kinds:   []int{kind},
-		Authors: follows,
-		Limit:   n,
+	filters := nostr.Filters{
+		{
+			Kinds:   []int{kind},
+			Authors: follows,
+			Limit:   n,
+		},
 	}
 
 	// Collect all events, then sort and display top n
 	events := []*nostr.Event{}
-	cfg.StreamEvents(filter, true, func(ev *nostr.Event) bool {
+	cfg.StreamEvents(filters, true, func(ev *nostr.Event) bool {
 		events = append(events, ev)
 		return true
 	})

@@ -141,19 +141,24 @@ func pay(cfg *Config, invoice string) error {
 // ZapInfo is
 func (cfg *Config) ZapInfo(pub string) (*Lnurlp, error) {
 	// get set-metadata
-	filter := nostr.Filter{
-		Kinds:   []int{nostr.KindProfileMetadata},
-		Authors: []string{pub},
-		Limit:   1,
+	filters := nostr.Filters{
+		{
+			Kinds:   []int{nostr.KindProfileMetadata},
+			Authors: []string{pub},
+			Limit:   1,
+		},
 	}
 
-	evs := cfg.Events(filter)
+	evs, err := cfg.QueryEvents(filters)
+	if err != nil {
+		return nil, err
+	}
 	if len(evs) == 0 {
 		return nil, errors.New("cannot find user")
 	}
 
 	var profile Profile
-	err := json.Unmarshal([]byte(evs[0].Content), &profile)
+	err = json.Unmarshal([]byte(evs[0].Content), &profile)
 	if err != nil {
 		return nil, err
 	}
@@ -236,7 +241,15 @@ func callZap(arg *zapArg) error {
 			zr.Tags = zr.Tags.AppendUnique(nostr.Tag{"p", receipt})
 			zr.Tags = zr.Tags.AppendUnique(nostr.Tag{"e", s.(nostr.EventPointer).ID})
 		case "note":
-			evs := arg.cfg.Events(nostr.Filter{IDs: []string{s.(string)}})
+			filters := nostr.Filters{
+				{
+					IDs: []string{s.(string)},
+				},
+			}
+			evs, err := arg.cfg.QueryEvents(filters)
+			if err != nil {
+				return err
+			}
 			if len(evs) != 0 {
 				receipt = evs[0].PubKey
 				zr.Tags = zr.Tags.AppendUnique(nostr.Tag{"p", receipt})

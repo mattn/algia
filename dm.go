@@ -38,13 +38,23 @@ func doDMList(cCtx *cli.Context) error {
 	}
 
 	// get timeline
-	filter := nostr.Filter{
-		Kinds:   []int{nostr.KindEncryptedDirectMessage},
-		Authors: []string{pub},
-		Limit:   9999,
+	filters := nostr.Filters{
+		{
+			Kinds:   []int{nostr.KindEncryptedDirectMessage},
+			Authors: []string{pub},
+			Limit:   9999,
+		},
+		{
+			Kinds: []int{1059},
+			Tags:  nostr.TagMap{"p": []string{pub}},
+			Limit: 9999,
+		},
 	}
 
-	evs := cfg.Events(filter)
+	evs, err := cfg.QueryEvents(filters)
+	if err != nil {
+		return err
+	}
 
 	type entry struct {
 		Name   string `json:"name"`
@@ -129,31 +139,37 @@ func doDMTimeline(cCtx *cli.Context) error {
 	}
 
 	// get timeline
-	filter := nostr.Filter{
-		Kinds:   []int{nostr.KindEncryptedDirectMessage},
-		Authors: []string{pk, pub},
-		Tags:    nostr.TagMap{"p": []string{pk, pub}},
-		Limit:   n,
+	filters := nostr.Filters{
+		{
+			Kinds:   []int{nostr.KindEncryptedDirectMessage},
+			Authors: []string{pk, pub},
+			Tags:    nostr.TagMap{"p": []string{pk, pub}},
+			Limit:   n,
+		},
+		{
+			Kinds: []int{1059},
+			Tags:  nostr.TagMap{"p": []string{pk}},
+			Limit: n,
+		},
 	}
 
 	// Collect all events, then sort and display top n
-	events := []*nostr.Event{}
-	cfg.StreamEvents(filter, true, func(ev *nostr.Event) bool {
-		events = append(events, ev)
-		return true
-	})
+	evs, err := cfg.QueryEvents(filters)
+	if err != nil {
+		return err
+	}
 
 	// Sort by timestamp descending (newest first)
-	sort.Slice(events, func(i, j int) bool {
-		return events[j].CreatedAt.Time().After(events[i].CreatedAt.Time())
+	sort.Slice(evs, func(i, j int) bool {
+		return evs[j].CreatedAt.Time().After(evs[i].CreatedAt.Time())
 	})
 
-	if len(events) > n {
-		events = events[len(events)-n:]
+	if len(evs) > n {
+		evs = evs[len(evs)-n:]
 	}
 
 	// Display only top n events
-	for _, ev := range events {
+	for _, ev := range evs {
 		cfg.PrintEvent(ev, j, extra)
 	}
 	return nil
