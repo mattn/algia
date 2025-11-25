@@ -210,7 +210,7 @@ func doDMPost(cCtx *cli.Context) error {
 	}
 
 	var success atomic.Int64
-	cfg.Do(Relay{Write: true}, func(ctx context.Context, relay *nostr.Relay) bool {
+	cfg.Do(Relay{Write: true, DM: true}, func(ctx context.Context, relay *nostr.Relay) bool {
 		err := relay.Publish(ctx, ev)
 		if err != nil {
 			fmt.Fprintln(os.Stderr, relay.URL, err)

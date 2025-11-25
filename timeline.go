@@ -454,7 +454,7 @@ func doUnrepost(cCtx *cli.Context) error {
 	}
 	var repostID string
 	var mu sync.Mutex
-	cfg.Do(Relay{Read: true}, func(ctx context.Context, relay *nostr.Relay) bool {
+	cfg.Do(Relay{Write: true}, func(ctx context.Context, relay *nostr.Relay) bool {
 		evs, err := relay.QuerySync(ctx, filter)
 		if err != nil {
 			return true
@@ -609,7 +609,7 @@ func doUnlike(cCtx *cli.Context) error {
 	}
 	var likeID string
 	var mu sync.Mutex
-	cfg.Do(Relay{Read: true}, func(ctx context.Context, relay *nostr.Relay) bool {
+	cfg.Do(Relay{Write: true}, func(ctx context.Context, relay *nostr.Relay) bool {
 		evs, err := relay.QuerySync(ctx, filter)
 		if err != nil {
 			return true

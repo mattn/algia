@@ -411,6 +411,9 @@ func (cfg *Config) Do(r Relay, f func(context.Context, *nostr.Relay) bool) {
 		if !r.Write && !v.Read {
 			continue
 		}
+		if r.DM && !v.DM {
+			continue
+		}
 		wg.Add(1)
 		go func(wg *sync.WaitGroup, k string, v Relay) {
 			defer wg.Done()
