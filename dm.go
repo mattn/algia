@@ -98,7 +98,7 @@ func doDMList(cCtx *cli.Context) error {
 		profile, err := cfg.GetProfile(npub)
 		if err == nil {
 			name := profile.DisplayName
-			if name == "" {
+			if name == "" && profile.Name != "" {
 				name = profile.Name
 			}
 			users = append(users, entry{
@@ -161,25 +161,64 @@ func doDMTimeline(cCtx *cli.Context) error {
 		return fmt.Errorf("failed to parse pubkey from '%s'", u)
 	}
 
-	// get timeline
+	var evs []*nostr.Event
+
+	// get timeline with combined filters for both kind 4 and 1059
 	filters := nostr.Filters{
 		{
 			Kinds:   []int{nostr.KindEncryptedDirectMessage},
-			Authors: []string{pk, pub},
-			Tags:    nostr.TagMap{"p": []string{pk, pub}},
-			Limit:   n,
+			Authors: []string{pub},
+			Tags:    nostr.TagMap{"p": []string{pk}},
+			Limit:   9999,
 		},
+	}
+	// Collect all events, then sort and display top n
+	if eevs, err := cfg.QueryEvents(filters); err != nil {
+		return err
+	} else {
+		for _, ev := range eevs {
+			evs = append(evs, ev)
+		}
+	}
+
+	// get timeline with combined filters for both kind 4 and 1059
+	filters = nostr.Filters{
+		{
+			Kinds:   []int{nostr.KindEncryptedDirectMessage},
+			Authors: []string{pk},
+			Tags:    nostr.TagMap{"p": []string{pub}},
+			Limit:   9999,
+		},
+	}
+	// Collect all events, then sort and display top n
+	if eevs, err := cfg.QueryEvents(filters); err != nil {
+		return err
+	} else {
+		for _, ev := range eevs {
+			evs = append(evs, ev)
+		}
+	}
+
+	// Query for kind 1059 (encrypted) events with strict participant check
+	filters = nostr.Filters{
 		{
 			Kinds: []int{1059},
 			Tags:  nostr.TagMap{"p": []string{pk}},
-			Limit: n,
+			Limit: 9999,
 		},
 	}
-
-	// Collect all events, then sort and display top n
-	evs, err := cfg.QueryEvents(filters)
-	if err != nil {
-		return err
+	if eevs, err := cfg.QueryEvents(filters); err == nil {
+		for _, ev := range eevs {
+			// Validate participants for kind 1059
+			if ev.Kind != 14 {
+				continue
+			}
+			if !((ev.PubKey == pub && ev.Tags.GetFirst([]string{"p"}).Value() == pk) ||
+				(ev.PubKey == pk && ev.Tags.GetFirst([]string{"p"}).Value() == pub)) {
+				continue
+			}
+			evs = append(evs, ev)
+		}
 	}
 
 	// Sort by timestamp descending (newest first)
