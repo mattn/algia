@@ -11,27 +11,33 @@ import (
 
 func required[T comparable](r mcp.CallToolRequest, p string) T {
 	var zero T
-	if _, ok := r.Params.Arguments[p]; !ok {
+	if _, ok := r.Params.Arguments.(map[string]any); !ok {
 		return zero
 	}
-	if _, ok := r.Params.Arguments[p].(T); !ok {
+	if _, ok := r.Params.Arguments.(map[string]any)[p]; !ok {
 		return zero
 	}
-	if r.Params.Arguments[p].(T) == zero {
+	if _, ok := r.Params.Arguments.(map[string]any)[p].(T); !ok {
 		return zero
 	}
-	return r.Params.Arguments[p].(T)
+	if r.Params.Arguments.(map[string]any)[p].(T) == zero {
+		return zero
+	}
+	return r.Params.Arguments.(map[string]any)[p].(T)
 }
 
 func optional[T any](r mcp.CallToolRequest, p string) (T, bool) {
 	var zero T
-	if _, ok := r.Params.Arguments[p]; !ok {
+	if _, ok := r.Params.Arguments.(map[string]any); !ok {
 		return zero, false
 	}
-	if _, ok := r.Params.Arguments[p].(T); !ok {
+	if _, ok := r.Params.Arguments.(map[string]any)[p]; !ok {
 		return zero, false
 	}
-	return r.Params.Arguments[p].(T), true
+	if _, ok := r.Params.Arguments.(map[string]any)[p].(T); !ok {
+		return zero, false
+	}
+	return r.Params.Arguments.(map[string]any)[p].(T), true
 }
 
 func doMcp(cCtx *cli.Context) error {
