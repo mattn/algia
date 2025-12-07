@@ -722,7 +722,9 @@ func (cfg *Config) QueryEvents(filters nostr.Filters) ([]*nostr.Event, error) {
 					return nip44.Decrypt(ciphertext, conversationKey)
 				})
 				if err == nil {
+					id := ev.ID
 					ev = &eev
+					ev.ID = id
 				} else if cfg.verbose {
 					fmt.Fprintf(os.Stderr, "GiftUnwrap failed for event %s: %v\n", ev.ID, err)
 				}
