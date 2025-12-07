@@ -39,30 +39,56 @@ func doDMList(cCtx *cli.Context) error {
 		return err
 	}
 
-	// get timeline
+	var evs []*nostr.Event
+
+	// get timeline with combined filters for both kind 4 and 1059
 	filters := nostr.Filters{
+		{
+			Kinds:   []int{nostr.KindEncryptedDirectMessage},
+			Authors: []string{pub},
+			Tags:    nostr.TagMap{"p": []string{pub}},
+			Limit:   9999,
+		},
+	}
+	// Collect all events, then sort and display top n
+	if eevs, err := cfg.QueryEvents(filters); err != nil {
+		return err
+	} else {
+		for _, ev := range eevs {
+			evs = append(evs, ev)
+		}
+	}
+
+	// get timeline with combined filters for both kind 4 and 1059
+	filters = nostr.Filters{
 		{
 			Kinds:   []int{nostr.KindEncryptedDirectMessage},
 			Authors: []string{pub},
 			Limit:   9999,
 		},
-		{
-			Kinds: []int{nostr.KindEncryptedDirectMessage},
-			Tags:  nostr.TagMap{"p": []string{pub}},
-			Limit: 9999,
-		},
+	}
+	// Collect all events, then sort and display top n
+	if eevs, err := cfg.QueryEvents(filters); err != nil {
+		return err
+	} else {
+		for _, ev := range eevs {
+			evs = append(evs, ev)
+		}
+	}
+
+	// Query for kind 1059 (encrypted) events with strict participant check
+	filters = nostr.Filters{
 		{
 			Kinds: []int{1059},
 			Tags:  nostr.TagMap{"p": []string{pub}},
 			Limit: 9999,
 		},
 	}
-
-	evs, err := cfg.QueryEvents(filters)
-	if err != nil {
-		return err
+	if eevs, err := cfg.QueryEvents(filters); err == nil {
+		for _, ev := range eevs {
+			evs = append(evs, ev)
+		}
 	}
-
 	if cfg.verbose {
 		fmt.Fprintf(os.Stderr, "Total events received: %d\n", len(evs))
 		for i, ev := range evs {
