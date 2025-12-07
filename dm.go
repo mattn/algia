@@ -97,11 +97,12 @@ func doDMList(cCtx *cli.Context) error {
 	}
 
 	type entry struct {
-		Name   string `json:"name"`
-		Pubkey string `json:"pubkey"`
+		Name      string `json:"name"`
+		Pubkey    string `json:"pubkey"`
+		CreatedAt nostr.Timestamp
 	}
-	users := []entry{}
-	m := map[string]struct{}{}
+	bestEntries := make(map[string]entry)
+
 	for _, ev := range evs {
 		var p string
 		if ev.PubKey == pub {
@@ -109,35 +110,46 @@ func doDMList(cCtx *cli.Context) error {
 			if tag == nil {
 				continue
 			}
-			p = tag.Value()
+			p = (*tag)[1]
 		} else {
 			p = ev.PubKey
 		}
-		if _, ok := m[p]; ok {
-			continue
-		}
-		m[p] = struct{}{}
+
 		npub, err := nip19.EncodePublicKey(p)
 		if err != nil {
 			continue
 		}
+
 		profile, err := cfg.GetProfile(npub)
+		name := npub
 		if err == nil {
-			name := profile.DisplayName
-			if name == "" && profile.Name != "" {
+			if profile.DisplayName != "" {
+				name = profile.DisplayName
+			} else if profile.Name != "" {
 				name = profile.Name
 			}
-			users = append(users, entry{
-				Name:   name,
-				Pubkey: npub,
-			})
-		} else {
-			users = append(users, entry{
-				Name:   npub,
-				Pubkey: npub,
-			})
+		}
+
+		current, exists := bestEntries[p]
+		newEntry := entry{
+			Name:      name,
+			Pubkey:    npub,
+			CreatedAt: ev.CreatedAt,
+		}
+
+		if !exists || ev.CreatedAt > current.CreatedAt {
+			bestEntries[p] = newEntry
 		}
 	}
+
+	users := make([]entry, 0, len(bestEntries))
+	for _, e := range bestEntries {
+		users = append(users, e)
+	}
+
+	sort.Slice(users, func(i, j int) bool {
+		return users[i].CreatedAt < users[j].CreatedAt
+	})
 
 	if j {
 		for _, user := range users {
