@@ -923,36 +923,59 @@ func doStream(cCtx *cli.Context) error {
 }
 
 func doTimeline(cCtx *cli.Context) error {
-	u := cCtx.String("u")
-	n := cCtx.Int("n")
-	j := cCtx.Bool("json")
-	extra := cCtx.Bool("extra")
-	article := cCtx.Bool("article")
-	global := cCtx.Bool("global")
-
 	cfg := cCtx.App.Metadata["config"].(*Config)
+	events, err := callTimeline(&timelineArg{
+		cfg:     cfg,
+		global:  cCtx.Bool("global"),
+		u:       cCtx.String("u"),
+		n:       cCtx.Int("n"),
+		article: cCtx.Bool("article"),
+	})
 
+	if err != nil {
+		return err
+	}
+
+	// Display only top n events
+	for _, ev := range events {
+		cfg.PrintEvent(ev, cCtx.Bool("json"), cCtx.Bool("extra"))
+	}
+
+	return nil
+}
+
+type timelineArg struct {
+	cfg     *Config
+	global  bool
+	u       string
+	n       int
+	j       bool
+	extra   bool
+	article bool
+}
+
+func callTimeline(arg *timelineArg) ([]*nostr.Event, error) {
 	var follows []string
-	if global {
+	if arg.global {
 		follows = nil
 	} else {
-		if u == "" {
-			follows = append(follows, cfg.FollowList...)
+		if arg.u == "" {
+			follows = append(follows, arg.cfg.FollowList...)
 			if len(follows) == 0 {
-				return fmt.Errorf("no follows found. Please follow someone first.")
+				return nil, fmt.Errorf("no follows found. Please follow someone first.")
 			}
 		} else {
-			if pp := sdk.InputToProfile(context.TODO(), u); pp != nil {
-				u = pp.PublicKey
+			if pp := sdk.InputToProfile(context.TODO(), arg.u); pp != nil {
+				arg.u = pp.PublicKey
 			} else {
-				return fmt.Errorf("failed to parse pubkey from '%s'", u)
+				return nil, fmt.Errorf("failed to parse pubkey from '%s'", arg.u)
 			}
-			follows = []string{u}
+			follows = []string{arg.u}
 		}
 	}
 
 	kind := nostr.KindTextNote
-	if article {
+	if arg.article {
 		kind = nostr.KindArticle
 	}
 	// get timeline
@@ -960,13 +983,13 @@ func doTimeline(cCtx *cli.Context) error {
 		{
 			Kinds:   []int{kind},
 			Authors: follows,
-			Limit:   n,
+			Limit:   arg.n,
 		},
 	}
 
 	// Collect all events
 	events := []*nostr.Event{}
-	cfg.StreamEvents(filters, true, func(ev *nostr.Event) bool {
+	arg.cfg.StreamEvents(filters, true, func(ev *nostr.Event) bool {
 		events = append(events, ev)
 		return true
 	})
@@ -976,16 +999,11 @@ func doTimeline(cCtx *cli.Context) error {
 		return events[j].CreatedAt.Time().After(events[i].CreatedAt.Time())
 	})
 
-	if len(events) > n {
-		events = events[len(events)-n:]
+	if len(events) > arg.n {
+		events = events[len(events)-arg.n:]
 	}
 
-	// Display only top n events
-	for _, ev := range events {
-		cfg.PrintEvent(ev, j, extra)
-	}
-
-	return nil
+	return events, nil
 }
 
 func postMsg(cCtx *cli.Context, msg string) error {

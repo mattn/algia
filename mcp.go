@@ -7,6 +7,7 @@ import (
 
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
+	"github.com/nbd-wtf/go-nostr"
 )
 
 func required[T comparable](r mcp.CallToolRequest, p string) T {
@@ -64,7 +65,6 @@ func doMcp(cCtx *cli.Context) error {
 	s.AddTool(mcp.NewTool("favorite_nostr_event",
 		mcp.WithDescription("favorite note"),
 		mcp.WithString("id", mcp.Description("ID"), mcp.Required()),
-        mcp.WithOutputSchema
 	), func(ctx context.Context, r mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		err := callLike(&likeArg{
 			cfg: cCtx.App.Metadata["config"].(*Config),
@@ -77,7 +77,7 @@ func doMcp(cCtx *cli.Context) error {
 	})
 
 	s.AddTool(mcp.NewTool("publish_nostr_event",
-		mcp.WithDescription("publish note"),
+		mcp.WithDescription("publish nostr note"),
 		mcp.WithString("content", mcp.Description("Content"), mcp.Required()),
 	), func(ctx context.Context, r mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		err := callPost(&postArg{
@@ -90,18 +90,18 @@ func doMcp(cCtx *cli.Context) error {
 		return mcp.NewToolResultText("OK"), nil
 	})
 
-	s.AddTool(mcp.NewTool("publish_nostr_event",
-		mcp.WithDescription("publish note"),
-		mcp.WithString("content", mcp.Description("Content"), mcp.Required()),
-	), func(ctx context.Context, r mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		err := callPost(&postArg{
-			cfg:     cCtx.App.Metadata["config"].(*Config),
-			content: required[string](r, "content"),
+	s.AddTool(mcp.NewTool("get_nostr_timeline",
+		mcp.WithDescription("get nostr timeline"),
+		mcp.WithInputSchema[string](),
+		mcp.WithOutputSchema[[]*nostr.Event](),
+	), mcp.NewStructuredToolHandler(func(ctx context.Context, r mcp.CallToolRequest, arg string) ([]*nostr.Event, error) {
+		events, err := callTimeline(&timelineArg{
+			cfg: cCtx.App.Metadata["config"].(*Config),
 		})
 		if err != nil {
-			return mcp.NewToolResultError(err.Error()), nil
+			return nil, err
 		}
-		return mcp.NewToolResultText("OK"), nil
-	})
+		return events, nil
+	}))
 	return server.ServeStdio(s)
 }
