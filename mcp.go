@@ -92,11 +92,14 @@ func doMcp(cCtx *cli.Context) error {
 
 	s.AddTool(mcp.NewTool("get_nostr_timeline",
 		mcp.WithDescription("get nostr timeline"),
-		mcp.WithInputSchema[string](),
+		mcp.WithNumber("number", mcp.Description("Number of timeline"), mcp.DefaultNumber(10)),
+		mcp.WithString("user", mcp.Description("Timeline of user"), mcp.DefaultString("")),
 		mcp.WithOutputSchema[[]*nostr.Event](),
-	), mcp.NewStructuredToolHandler(func(ctx context.Context, r mcp.CallToolRequest, arg string) ([]*nostr.Event, error) {
+	), mcp.NewStructuredToolHandler(func(ctx context.Context, r mcp.CallToolRequest, arg any) ([]*nostr.Event, error) {
 		events, err := callTimeline(&timelineArg{
 			cfg: cCtx.App.Metadata["config"].(*Config),
+			n:   r.GetInt("number", 10),
+			u:   r.GetString("user", ""),
 		})
 		if err != nil {
 			return nil, err
