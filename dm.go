@@ -272,6 +272,22 @@ func doDMTimeline(cCtx *cli.Context) error {
 	return nil
 }
 
+func createGiftWrap(ev nostr.Event, recipientPubkey, senderSk string) (nostr.Event, error) {
+	return nip59.GiftWrap(ev, recipientPubkey,
+		func(plaintext string) (string, error) {
+			conversationKey, err := nip44.GenerateConversationKey(recipientPubkey, senderSk)
+			if err != nil {
+				return "", err
+			}
+			return nip44.Encrypt(plaintext, conversationKey)
+		},
+		func(ev *nostr.Event) error {
+			return ev.Sign(senderSk)
+		},
+		nil,
+	)
+}
+
 func doDMPost(cCtx *cli.Context) error {
 	u := cCtx.String("u")
 	stdin := cCtx.Bool("stdin")
@@ -344,32 +360,36 @@ func doDMPost(cCtx *cli.Context) error {
 		if err := ev.Sign(sk); err != nil {
 			return err
 		}
+
+		var success atomic.Int64
+		cfg.Do(Relay{Write: true, DM: true}, func(ctx context.Context, relay *nostr.Relay) bool {
+			err := relay.Publish(ctx, ev)
+			if err != nil {
+				fmt.Fprintln(os.Stderr, relay.URL, err)
+			} else {
+				success.Add(1)
+			}
+			return true
+		})
+		if success.Load() == 0 {
+			return errors.New("cannot post")
+		}
 	} else {
-		ev.Kind = 14
-		eev, err := nip59.GiftWrap(ev, pub,
-			func(plaintext string) (string, error) {
-				conversationKey, err := nip44.GenerateConversationKey(pub, sk)
-				if err != nil {
-					return "", err
-				}
-				encrypted, err := nip44.Encrypt(plaintext, conversationKey)
-				if err != nil {
-					return "", err
-				}
-				return encrypted, nil
-			},
-			func(ev *nostr.Event) error {
-				return ev.Sign(sk)
-			},
-			nil,
-		)
+		ev.Kind = nostr.KindDirectMessage
+
+		// Create gift wrap for receiver
+		receiverWrap, err := createGiftWrap(ev, pub, sk)
 		if err != nil {
 			return err
 		}
-		ev = eev
-	}
 
-	if !useNip04 {
+		// Create gift wrap for sender (self)
+		senderWrap, err := createGiftWrap(ev, ev.PubKey, sk)
+		if err != nil {
+			return err
+		}
+
+		// Get receiver's relay list
 		filters := nostr.Filters{
 			{
 				Kinds:   []int{nostr.KindDMRelayList},
@@ -391,15 +411,18 @@ func doDMPost(cCtx *cli.Context) error {
 				relays = append(relays, tag[1])
 			}
 		}
+
+		// Publish receiver's gift wrap to receiver's relays
 		ctx := context.TODO()
-		result := <-nostr.NewSimplePool(ctx).PublishMany(ctx, relays, ev)
+		result := <-nostr.NewSimplePool(ctx).PublishMany(ctx, relays, receiverWrap)
 		if result.Error != nil {
 			return result.Error
 		}
-	} else {
+
+		// Publish sender's gift wrap to sender's own relays
 		var success atomic.Int64
 		cfg.Do(Relay{Write: true, DM: true}, func(ctx context.Context, relay *nostr.Relay) bool {
-			err := relay.Publish(ctx, ev)
+			err := relay.Publish(ctx, senderWrap)
 			if err != nil {
 				fmt.Fprintln(os.Stderr, relay.URL, err)
 			} else {
@@ -408,7 +431,7 @@ func doDMPost(cCtx *cli.Context) error {
 			return true
 		})
 		if success.Load() == 0 {
-			return errors.New("cannot post")
+			return errors.New("cannot post sender's copy")
 		}
 	}
 	return nil

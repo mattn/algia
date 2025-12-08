@@ -556,6 +556,8 @@ func (cfg *Config) PrintEvents(evs []*nostr.Event, followsMap map[string]Profile
 
 	for _, ev := range evs {
 		profile, err := cfg.GetProfile(ev.PubKey)
+
+		fmt.Print(ev.CreatedAt.Time().Format("2006-01-02T15:04:05") + " ")
 		if err == nil {
 			color.Set(color.FgHiRed)
 			fmt.Print(profile.Name)
@@ -577,6 +579,7 @@ func (cfg *Config) PrintEvents(evs []*nostr.Event, followsMap map[string]Profile
 		}
 		color.Set(color.Reset)
 		fmt.Println(ev.Content)
+		fmt.Println()
 	}
 }
 
@@ -598,6 +601,8 @@ func (cfg *Config) PrintEvent(ev *nostr.Event, j, extra bool) {
 		}
 		return
 	}
+
+	fmt.Print(ev.CreatedAt.Time().Format("2006-01-02T15:04:05") + " ")
 
 	// Check cache only, don't fetch
 	if profile, err := cfg.GetProfile(ev.PubKey); err == nil {
@@ -621,6 +626,7 @@ func (cfg *Config) PrintEvent(ev *nostr.Event, j, extra bool) {
 	}
 	color.Set(color.Reset)
 	fmt.Println(ev.Content)
+	fmt.Println()
 }
 
 func includeKind(kinds []int, candidates ...int) bool {
@@ -755,7 +761,11 @@ func (cfg *Config) StreamEvents(filters nostr.Filters, closeOnEOSE bool, callbac
 	relays := []string{}
 	rmap := make(map[string]struct{})
 	for _, filter := range filters {
-		if includeKind(filter.Kinds, nostr.KindTextNote, nostr.KindEncryptedDirectMessage, nostr.KindGiftWrap) {
+		if includeKind(filter.Kinds, nostr.KindTextNote) {
+			for k, _ := range cfg.Relays {
+				rmap[k] = struct{}{}
+			}
+		} else if includeKind(filter.Kinds, nostr.KindEncryptedDirectMessage, nostr.KindGiftWrap) {
 			for k, v := range cfg.Relays {
 				if !v.DM {
 					continue
@@ -885,7 +895,6 @@ func main() {
 				Flags: []cli.Flag{
 					&cli.StringSliceFlag{Name: "author"},
 					&cli.IntSliceFlag{Name: "kind", Value: cli.NewIntSlice(nostr.KindTextNote)},
-					&cli.BoolFlag{Name: "follow"},
 					&cli.StringFlag{Name: "pattern"},
 					&cli.StringFlag{Name: "reply"},
 					&cli.StringSliceFlag{Name: "tag"},

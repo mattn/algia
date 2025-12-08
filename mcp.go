@@ -64,10 +64,25 @@ func doMcp(cCtx *cli.Context) error {
 	s.AddTool(mcp.NewTool("favorite_nostr_event",
 		mcp.WithDescription("favorite note"),
 		mcp.WithString("id", mcp.Description("ID"), mcp.Required()),
+        mcp.WithOutputSchema
 	), func(ctx context.Context, r mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		err := callLike(&likeArg{
 			cfg: cCtx.App.Metadata["config"].(*Config),
 			id:  required[string](r, "note"),
+		})
+		if err != nil {
+			return mcp.NewToolResultError(err.Error()), nil
+		}
+		return mcp.NewToolResultText("OK"), nil
+	})
+
+	s.AddTool(mcp.NewTool("publish_nostr_event",
+		mcp.WithDescription("publish note"),
+		mcp.WithString("content", mcp.Description("Content"), mcp.Required()),
+	), func(ctx context.Context, r mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		err := callPost(&postArg{
+			cfg:     cCtx.App.Metadata["config"].(*Config),
+			content: required[string](r, "content"),
 		})
 		if err != nil {
 			return mcp.NewToolResultError(err.Error()), nil

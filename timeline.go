@@ -800,7 +800,6 @@ func doBroadcast(cCtx *cli.Context) error {
 func doStream(cCtx *cli.Context) error {
 	kinds := cCtx.IntSlice("kind")
 	authors := cCtx.StringSlice("author")
-	f := cCtx.Bool("follow")
 	pattern := cCtx.String("pattern")
 	reply := cCtx.String("reply")
 	tags := cCtx.StringSlice("tag")
@@ -834,9 +833,7 @@ func doStream(cCtx *cli.Context) error {
 	if global {
 		follows = nil
 	} else {
-		if f {
-			follows = append(follows, cfg.FollowList...)
-		} else {
+		if len(authors) > 0 {
 			for _, author := range authors {
 				if pp := sdk.InputToProfile(context.TODO(), author); pp != nil {
 					follows = append(follows, pp.PublicKey)
@@ -844,6 +841,8 @@ func doStream(cCtx *cli.Context) error {
 					return fmt.Errorf("failed to parse pubkey from '%s'", author)
 				}
 			}
+		} else {
+			follows = append(follows, cfg.FollowList...)
 		}
 	}
 
@@ -965,14 +964,14 @@ func doTimeline(cCtx *cli.Context) error {
 		},
 	}
 
-	// Collect all events, then sort and display top n
+	// Collect all events
 	events := []*nostr.Event{}
 	cfg.StreamEvents(filters, true, func(ev *nostr.Event) bool {
 		events = append(events, ev)
 		return true
 	})
 
-	// Sort by timestamp descending (newest first)
+	// Sort by timestamp descending (newest last)
 	sort.Slice(events, func(i, j int) bool {
 		return events[j].CreatedAt.Time().After(events[i].CreatedAt.Time())
 	})
