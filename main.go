@@ -643,7 +643,7 @@ func (cfg *Config) QueryEvents(filters nostr.Filters) ([]*nostr.Event, error) {
 	relays := []string{}
 	rmap := make(map[string]struct{})
 	for _, filter := range filters {
-		if includeKind(filter.Kinds, nostr.KindTextNote, nostr.KindEncryptedDirectMessage, 1059) {
+		if includeKind(filter.Kinds, nostr.KindTextNote, nostr.KindEncryptedDirectMessage, nostr.KindGiftWrap) {
 			for k, v := range cfg.Relays {
 				if !v.DM {
 					continue
@@ -713,7 +713,7 @@ func (cfg *Config) QueryEvents(filters nostr.Filters) ([]*nostr.Event, error) {
 				if err := cfg.Decode(ev, sk, pub); err != nil {
 					continue
 				}
-			} else if ev.Kind == 1059 {
+			} else if ev.Kind == nostr.KindGiftWrap {
 				eev, err := nip59.GiftUnwrap(*ev, func(otherpubkey, ciphertext string) (string, error) {
 					conversationKey, err := nip44.GenerateConversationKey(otherpubkey, sk)
 					if err != nil {
@@ -755,7 +755,7 @@ func (cfg *Config) StreamEvents(filters nostr.Filters, closeOnEOSE bool, callbac
 	relays := []string{}
 	rmap := make(map[string]struct{})
 	for _, filter := range filters {
-		if includeKind(filter.Kinds, nostr.KindTextNote, nostr.KindEncryptedDirectMessage, 1059) {
+		if includeKind(filter.Kinds, nostr.KindTextNote, nostr.KindEncryptedDirectMessage, nostr.KindGiftWrap) {
 			for k, v := range cfg.Relays {
 				if !v.DM {
 					continue
@@ -825,7 +825,7 @@ func (cfg *Config) StreamEvents(filters nostr.Filters, closeOnEOSE bool, callbac
 			if err := cfg.Decode(ev, sk, pub); err != nil {
 				continue
 			}
-		} else if ev.Kind == 1059 {
+		} else if ev.Kind == nostr.KindGiftWrap {
 			eev, err := nip59.GiftUnwrap(*ev, func(otherpubkey, ciphertext string) (string, error) {
 				conversationKey, err := nip44.GenerateConversationKey(otherpubkey, sk)
 				if err != nil {

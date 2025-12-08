@@ -91,9 +91,6 @@ func doDMList(cCtx *cli.Context) error {
 	}
 	if cfg.verbose {
 		fmt.Fprintf(os.Stderr, "Total events received: %d\n", len(evs))
-		for i, ev := range evs {
-			fmt.Fprintf(os.Stderr, "Event %d: kind=%d, author=%s, tags=%v\n", i, ev.Kind, ev.PubKey, ev.Tags)
-		}
 	}
 
 	type entry struct {
@@ -372,18 +369,47 @@ func doDMPost(cCtx *cli.Context) error {
 		ev = eev
 	}
 
-	var success atomic.Int64
-	cfg.Do(Relay{Write: true, DM: true}, func(ctx context.Context, relay *nostr.Relay) bool {
-		err := relay.Publish(ctx, ev)
-		if err != nil {
-			fmt.Fprintln(os.Stderr, relay.URL, err)
-		} else {
-			success.Add(1)
+	if !useNip04 {
+		filters := nostr.Filters{
+			{
+				Kinds:   []int{nostr.KindDMRelayList},
+				Authors: []string{pub},
+			},
 		}
-		return true
-	})
-	if success.Load() == 0 {
-		return errors.New("cannot post")
+		revs, err := cfg.QueryEvents(filters)
+		if err != nil {
+			return err
+		}
+
+		if len(revs) == 0 {
+			return errors.New("user does not publish relay list for DM")
+		}
+
+		relays := []string{}
+		for _, tag := range revs[0].Tags {
+			if len(tag) >= 2 && tag[0] == "relay" {
+				relays = append(relays, tag[1])
+			}
+		}
+		ctx := context.TODO()
+		result := <-nostr.NewSimplePool(ctx).PublishMany(ctx, relays, ev)
+		if result.Error != nil {
+			return result.Error
+		}
+	} else {
+		var success atomic.Int64
+		cfg.Do(Relay{Write: true, DM: true}, func(ctx context.Context, relay *nostr.Relay) bool {
+			err := relay.Publish(ctx, ev)
+			if err != nil {
+				fmt.Fprintln(os.Stderr, relay.URL, err)
+			} else {
+				success.Add(1)
+			}
+			return true
+		})
+		if success.Load() == 0 {
+			return errors.New("cannot post")
+		}
 	}
 	return nil
 }
