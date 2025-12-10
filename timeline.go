@@ -696,27 +696,39 @@ func doDelete(cCtx *cli.Context) error {
 }
 
 func doSearch(cCtx *cli.Context) error {
-	n := cCtx.Int("n")
 	j := cCtx.Bool("json")
 	extra := cCtx.Bool("extra")
 
 	cfg := cCtx.App.Metadata["config"].(*Config)
-
-	// get timeline
-	filters := nostr.Filters{
-		{
-			Kinds:  []int{nostr.KindTextNote},
-			Search: strings.Join(cCtx.Args().Slice(), " "),
-			Limit:  n,
-		},
-	}
-
-	evs, err := cfg.QueryEvents(filters)
+	evs, err := callSearch(&searchArg{
+		cfg:    cfg,
+		search: strings.Join(cCtx.Args().Slice(), " "),
+		n:      cCtx.Int("n"),
+	})
 	if err != nil {
 		return err
 	}
 	cfg.PrintEvents(evs, nil, j, extra)
 	return nil
+}
+
+type searchArg struct {
+	cfg    *Config
+	search string
+	n      int
+}
+
+func callSearch(arg *searchArg) ([]*nostr.Event, error) {
+	// get timeline
+	filters := nostr.Filters{
+		{
+			Kinds:  []int{nostr.KindTextNote},
+			Search: arg.search,
+			Limit:  arg.n,
+		},
+	}
+
+	return arg.cfg.QueryEvents(filters)
 }
 
 func doBroadcast(cCtx *cli.Context) error {
