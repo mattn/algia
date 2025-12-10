@@ -46,29 +46,14 @@ func doMcp(cCtx *cli.Context) error {
 		"algia",
 		version,
 	)
-	s.AddTool(mcp.NewTool("send_satoshi",
-		mcp.WithDescription("send zap to note with specified amount"),
-		mcp.WithString("note", mcp.Description("Note ID"), mcp.Required()),
-		mcp.WithNumber("amount", mcp.Description("Zap amount satoshi to the note"), mcp.Required()),
-	), func(ctx context.Context, r mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		err := callZap(&zapArg{
-			cfg:    cCtx.App.Metadata["config"].(*Config),
-			amount: required[uint64](r, "amount"),
-			id:     required[string](r, "note"),
-		})
-		if err != nil {
-			return mcp.NewToolResultError(err.Error()), nil
-		}
-		return mcp.NewToolResultText("OK"), nil
-	})
 
 	s.AddTool(mcp.NewTool("favorite_nostr_event",
-		mcp.WithDescription("favorite note"),
-		mcp.WithString("id", mcp.Description("ID"), mcp.Required()),
+		mcp.WithDescription("Like (favorite) a specific Nostr note by its event ID. Use the 'id' from get_nostr_timeline output to like recent notes. Example: Like the first note in the timeline."),
+		mcp.WithString("id", mcp.Description("The event ID (hex string) of the note to like"), mcp.Required()),
 	), func(ctx context.Context, r mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		err := callLike(&likeArg{
 			cfg: cCtx.App.Metadata["config"].(*Config),
-			id:  required[string](r, "note"),
+			id:  required[string](r, "id"),
 		})
 		if err != nil {
 			return mcp.NewToolResultError(err.Error()), nil
@@ -76,9 +61,24 @@ func doMcp(cCtx *cli.Context) error {
 		return mcp.NewToolResultText("OK"), nil
 	})
 
-	s.AddTool(mcp.NewTool("publish_nostr_event",
-		mcp.WithDescription("publish nostr note"),
-		mcp.WithString("content", mcp.Description("Content"), mcp.Required()),
+	s.AddTool(mcp.NewTool("zap_nostr_note",
+		mcp.WithDescription("Send a Lightning zap (sats) to a note"),
+		mcp.WithString("id", mcp.Description("The event ID (hex string) of the note to zap"), mcp.Required()),
+		mcp.WithNumber("amount_sats", mcp.Description("Amount in satoshis"), mcp.Required()),
+	), func(ctx context.Context, r mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		err := callZap(&zapArg{
+			cfg:    cCtx.App.Metadata["config"].(*Config),
+			id:     required[string](r, "id"),
+			amount: required[uint64](r, "amount_sats"),
+		})
+		if err != nil {
+			return mcp.NewToolResultError(err.Error()), nil
+		}
+		return mcp.NewToolResultText("OK"), nil
+	})
+
+	s.AddTool(mcp.NewTool("post_nostr_note",
+		mcp.WithString("content", mcp.Description("Content of the note"), mcp.Required()),
 	), func(ctx context.Context, r mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		err := callPost(&postArg{
 			cfg:     cCtx.App.Metadata["config"].(*Config),
@@ -91,9 +91,9 @@ func doMcp(cCtx *cli.Context) error {
 	})
 
 	s.AddTool(mcp.NewTool("get_nostr_timeline",
-		mcp.WithDescription("get nostr timeline"),
-		mcp.WithNumber("number", mcp.Description("Number of timeline"), mcp.DefaultNumber(10)),
-		mcp.WithString("user", mcp.Description("Timeline of user"), mcp.DefaultString("")),
+		mcp.WithDescription("Fetch the latest Nostr timeline events (notes). Returns a list of events with IDs, content, and authors. Use this to get note IDs for liking or zapping. Example: Get 10 recent events from a user's timeline."),
+		mcp.WithNumber("number", mcp.Description("Number of events to fetch (default 10)"), mcp.DefaultNumber(10)),
+		mcp.WithString("user", mcp.Description("Optional: Pubkey or npub of the user whose timeline to fetch"), mcp.DefaultString("")),
 		mcp.WithOutputSchema[[]*nostr.Event](),
 	), mcp.NewStructuredToolHandler(func(ctx context.Context, r mcp.CallToolRequest, arg any) ([]*nostr.Event, error) {
 		events, err := callTimeline(&timelineArg{
@@ -106,5 +106,21 @@ func doMcp(cCtx *cli.Context) error {
 		}
 		return events, nil
 	}))
+
+	s.AddTool(mcp.NewTool("search_nostr_notes",
+		mcp.WithDescription("search nostr notes"),
+		mcp.WithString("search", mcp.Description("words for search"), mcp.Required()),
+		mcp.WithOutputSchema[[]*nostr.Event](),
+	), mcp.NewStructuredToolHandler(func(ctx context.Context, r mcp.CallToolRequest, arg any) ([]*nostr.Event, error) {
+		events, err := callSearch(&searchArg{
+			cfg:    cCtx.App.Metadata["config"].(*Config),
+			search: required[string](r, "search"),
+		})
+		if err != nil {
+			return nil, err
+		}
+		return events, nil
+	}))
+
 	return server.ServeStdio(s)
 }
