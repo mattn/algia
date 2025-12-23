@@ -107,10 +107,13 @@ func doUpdateProfile(cCtx *cli.Context) error {
 		}
 	}
 
-	var profile map[string]any
-	err = json.Unmarshal([]byte(ev.Content), &profile)
-	if err != nil {
-		return err
+	profile := map[string]any{}
+
+	if len(ev.Content) > 0 {
+		err = json.Unmarshal([]byte(ev.Content), &profile)
+		if err != nil {
+			return err
+		}
 	}
 
 	for _, arg := range cCtx.Args().Slice() {
