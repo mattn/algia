@@ -122,5 +122,77 @@ func doMcp(cCtx *cli.Context) error {
 		return events, nil
 	}))
 
+	s.AddTool(mcp.NewTool("reply_nostr_note",
+		mcp.WithDescription("Reply to a specific Nostr note"),
+		mcp.WithString("id", mcp.Description("The event ID (hex string) of the note to reply to"), mcp.Required()),
+		mcp.WithString("content", mcp.Description("Content of the reply"), mcp.Required()),
+	), func(ctx context.Context, r mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		err := callReply(&replyArg{
+			cfg:     cCtx.App.Metadata["config"].(*Config),
+			id:      required[string](r, "id"),
+			content: required[string](r, "content"),
+		})
+		if err != nil {
+			return mcp.NewToolResultError(err.Error()), nil
+		}
+		return mcp.NewToolResultText("OK"), nil
+	})
+
+	s.AddTool(mcp.NewTool("repost_nostr_note",
+		mcp.WithDescription("Repost (boost) a Nostr note"),
+		mcp.WithString("id", mcp.Description("The event ID (hex string) of the note to repost"), mcp.Required()),
+	), func(ctx context.Context, r mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		err := callRepost(&repostArg{
+			cfg: cCtx.App.Metadata["config"].(*Config),
+			id:  required[string](r, "id"),
+		})
+		if err != nil {
+			return mcp.NewToolResultError(err.Error()), nil
+		}
+		return mcp.NewToolResultText("OK"), nil
+	})
+
+	s.AddTool(mcp.NewTool("unrepost_nostr_note",
+		mcp.WithDescription("Remove a repost (undo boost) of a Nostr note"),
+		mcp.WithString("id", mcp.Description("The event ID (hex string) of the note to unrepost"), mcp.Required()),
+	), func(ctx context.Context, r mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		err := callUnrepost(&unrepostArg{
+			cfg: cCtx.App.Metadata["config"].(*Config),
+			id:  required[string](r, "id"),
+		})
+		if err != nil {
+			return mcp.NewToolResultError(err.Error()), nil
+		}
+		return mcp.NewToolResultText("OK"), nil
+	})
+
+	s.AddTool(mcp.NewTool("delete_nostr_note",
+		mcp.WithDescription("Delete a Nostr note"),
+		mcp.WithString("id", mcp.Description("The event ID (hex string) of the note to delete"), mcp.Required()),
+	), func(ctx context.Context, r mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		err := callDelete(&deleteArg{
+			cfg: cCtx.App.Metadata["config"].(*Config),
+			id:  required[string](r, "id"),
+		})
+		if err != nil {
+			return mcp.NewToolResultError(err.Error()), nil
+		}
+		return mcp.NewToolResultText("OK"), nil
+	})
+
+	s.AddTool(mcp.NewTool("get_user_profile",
+		mcp.WithDescription("Get a user's profile information from Nostr"),
+		mcp.WithString("user", mcp.Description("Pubkey, npub, or nprofile of the user"), mcp.Required()),
+		mcp.WithOutputSchema[Profile](),
+	), mcp.NewStructuredToolHandler(func(ctx context.Context, r mcp.CallToolRequest, arg any) (Profile, error) {
+		cfg := cCtx.App.Metadata["config"].(*Config)
+		user := required[string](r, "user")
+		profile, err := cfg.GetProfile(user)
+		if err != nil {
+			return Profile{}, err
+		}
+		return *profile, nil
+	}))
+
 	return server.ServeStdio(s)
 }

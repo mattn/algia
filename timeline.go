@@ -1069,3 +1069,266 @@ func doPowa(cCtx *cli.Context) error {
 func doPuru(cCtx *cli.Context) error {
 	return postMsg(cCtx, "(((( ˙꒳​˙  ))))ﾌﾟﾙﾌﾟﾙﾌﾟﾙﾌﾟﾙﾌﾟﾙﾌﾟﾙﾌﾟﾙ")
 }
+
+type replyArg struct {
+	cfg     *Config
+	id      string
+	content string
+}
+
+func callReply(arg *replyArg) error {
+	id := arg.id
+	if evp := sdk.InputToEventPointer(id); evp != nil {
+		id = evp.ID
+	} else {
+		return fmt.Errorf("failed to parse event from '%s'", id)
+	}
+
+	var sk string
+	if _, s, err := nip19.Decode(arg.cfg.PrivateKey); err == nil {
+		sk = s.(string)
+	} else {
+		return err
+	}
+	ev := nostr.Event{}
+	if pub, err := nostr.GetPublicKey(sk); err == nil {
+		if _, err := nip19.EncodePublicKey(pub); err != nil {
+			return err
+		}
+		ev.PubKey = pub
+	} else {
+		return err
+	}
+
+	ev.CreatedAt = nostr.Now()
+	ev.Kind = nostr.KindTextNote
+	ev.Content = arg.content
+
+	if strings.TrimSpace(ev.Content) == "" {
+		return errors.New("content is empty")
+	}
+
+	ev.Tags = nostr.Tags{}
+	clientTag(&ev)
+
+	for _, entry := range extractLinks(ev.Content) {
+		ev.Tags = ev.Tags.AppendUnique(nostr.Tag{"r", entry.text})
+	}
+
+	hashtag := nostr.Tag{"t"}
+	for _, m := range extractTags(ev.Content) {
+		hashtag = append(hashtag, m.text)
+	}
+	if len(hashtag) > 1 {
+		ev.Tags = ev.Tags.AppendUnique(hashtag)
+	}
+
+	var success atomic.Int64
+	arg.cfg.Do(Relay{Write: true}, func(ctx context.Context, relay *nostr.Relay) bool {
+		ev.Tags = ev.Tags.AppendUnique(nostr.Tag{"e", id, relay.URL, "reply"})
+		if err := ev.Sign(sk); err != nil {
+			return true
+		}
+		err := relay.Publish(ctx, ev)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, relay.URL, err)
+		} else {
+			success.Add(1)
+		}
+		return true
+	})
+	if success.Load() == 0 {
+		return errors.New("cannot reply")
+	}
+	return nil
+}
+
+type repostArg struct {
+	cfg *Config
+	id  string
+}
+
+func callRepost(arg *repostArg) error {
+	id := arg.id
+
+	ev := nostr.Event{}
+	var sk string
+	if _, s, err := nip19.Decode(arg.cfg.PrivateKey); err == nil {
+		sk = s.(string)
+	} else {
+		return err
+	}
+	if pub, err := nostr.GetPublicKey(sk); err == nil {
+		if _, err := nip19.EncodePublicKey(pub); err != nil {
+			return err
+		}
+		ev.PubKey = pub
+	} else {
+		return err
+	}
+
+	if evp := sdk.InputToEventPointer(id); evp != nil {
+		id = evp.ID
+	} else {
+		return fmt.Errorf("failed to parse event from '%s'", id)
+	}
+	ev.Tags = ev.Tags.AppendUnique(nostr.Tag{"e", id})
+	filter := nostr.Filter{
+		Kinds: []int{nostr.KindTextNote},
+		IDs:   []string{id},
+	}
+
+	ev.CreatedAt = nostr.Now()
+	ev.Kind = nostr.KindRepost
+	ev.Content = ""
+
+	var first atomic.Bool
+	first.Store(true)
+
+	var success atomic.Int64
+	arg.cfg.Do(Relay{Write: true}, func(ctx context.Context, relay *nostr.Relay) bool {
+		if first.Load() {
+			evs, err := relay.QuerySync(ctx, filter)
+			if err != nil {
+				return true
+			}
+			for _, tmp := range evs {
+				ev.Tags = ev.Tags.AppendUnique(nostr.Tag{"p", tmp.ID})
+			}
+			first.Store(false)
+			if err := ev.Sign(sk); err != nil {
+				return true
+			}
+		}
+		err := relay.Publish(ctx, ev)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, relay.URL, err)
+		} else {
+			success.Add(1)
+		}
+		return true
+	})
+	if success.Load() == 0 {
+		return errors.New("cannot repost")
+	}
+	return nil
+}
+
+type unrepostArg struct {
+	cfg *Config
+	id  string
+}
+
+func callUnrepost(arg *unrepostArg) error {
+	id := arg.id
+	if evp := sdk.InputToEventPointer(id); evp != nil {
+		id = evp.ID
+	} else {
+		return fmt.Errorf("failed to parse event from '%s'", id)
+	}
+
+	var sk string
+	if _, s, err := nip19.Decode(arg.cfg.PrivateKey); err == nil {
+		sk = s.(string)
+	} else {
+		return err
+	}
+	pub, err := nostr.GetPublicKey(sk)
+	if err != nil {
+		return err
+	}
+	filter := nostr.Filter{
+		Kinds:   []int{nostr.KindRepost},
+		Authors: []string{pub},
+		Tags:    nostr.TagMap{"e": []string{id}},
+	}
+	var repostID string
+	var mu sync.Mutex
+	arg.cfg.Do(Relay{Write: true}, func(ctx context.Context, relay *nostr.Relay) bool {
+		evs, err := relay.QuerySync(ctx, filter)
+		if err != nil {
+			return true
+		}
+		mu.Lock()
+		if len(evs) > 0 && repostID == "" {
+			repostID = evs[0].ID
+		}
+		mu.Unlock()
+		return true
+	})
+
+	var ev nostr.Event
+	ev.Tags = ev.Tags.AppendUnique(nostr.Tag{"e", repostID})
+	ev.CreatedAt = nostr.Now()
+	ev.Kind = nostr.KindDeletion
+	if err := ev.Sign(sk); err != nil {
+		return err
+	}
+
+	var success atomic.Int64
+	arg.cfg.Do(Relay{Write: true}, func(ctx context.Context, relay *nostr.Relay) bool {
+		err := relay.Publish(ctx, ev)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, relay.URL, err)
+		} else {
+			success.Add(1)
+		}
+		return true
+	})
+	if success.Load() == 0 {
+		return errors.New("cannot unrepost")
+	}
+	return nil
+}
+
+type deleteArg struct {
+	cfg *Config
+	id  string
+}
+
+func callDelete(arg *deleteArg) error {
+	id := arg.id
+
+	ev := nostr.Event{}
+	var sk string
+	if _, s, err := nip19.Decode(arg.cfg.PrivateKey); err == nil {
+		sk = s.(string)
+	} else {
+		return err
+	}
+	if pub, err := nostr.GetPublicKey(sk); err == nil {
+		if _, err := nip19.EncodePublicKey(pub); err != nil {
+			return err
+		}
+		ev.PubKey = pub
+	} else {
+		return err
+	}
+
+	if evp := sdk.InputToEventPointer(id); evp != nil {
+		id = evp.ID
+	} else {
+		return fmt.Errorf("failed to parse event from '%s'", id)
+	}
+	ev.Tags = ev.Tags.AppendUnique(nostr.Tag{"e", id})
+	ev.CreatedAt = nostr.Now()
+	ev.Kind = nostr.KindDeletion
+	if err := ev.Sign(sk); err != nil {
+		return err
+	}
+
+	var success atomic.Int64
+	arg.cfg.Do(Relay{Write: true}, func(ctx context.Context, relay *nostr.Relay) bool {
+		err := relay.Publish(ctx, ev)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, relay.URL, err)
+		} else {
+			success.Add(1)
+		}
+		return true
+	})
+	if success.Load() == 0 {
+		return errors.New("cannot delete")
+	}
+	return nil
+}
