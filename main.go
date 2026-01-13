@@ -1146,6 +1146,17 @@ func main() {
 				HelpName:  "version",
 				Action:    doVersion,
 			},
+			{
+				Name: "cat",
+				Flags: []cli.Flag{
+					&cli.BoolFlag{Name: "json", Usage: "output JSON"},
+					&cli.BoolFlag{Name: "extra", Usage: "extra JSON"},
+				},
+				Usage:     "read events from stdin",
+				UsageText: "cat nostr.nljson | algia cat",
+				HelpName:  "cat",
+				Action:    doCat,
+			},
 		},
 		Before: func(cCtx *cli.Context) error {
 			if cCtx.Args().Get(0) == "version" {

@@ -194,5 +194,24 @@ func doMcp(cCtx *cli.Context) error {
 		return *profile, nil
 	}))
 
+	s.AddTool(mcp.NewTool("view_nostr_timeline",
+		mcp.WithDescription("View the Nostr timeline in human-readable format with numbered posts. Each post includes the author name and content, with event IDs for reference."),
+		mcp.WithNumber("number", mcp.Description("Number of events to fetch (default 10)"), mcp.DefaultNumber(10)),
+		mcp.WithString("user", mcp.Description("Optional: Pubkey or npub of the user whose timeline to fetch"), mcp.DefaultString("")),
+	), func(ctx context.Context, r mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		n := r.GetInt("number", 10)
+		u := r.GetString("user", "")
+		events, err := callTimeline(&timelineArg{
+			cfg: cCtx.App.Metadata["config"].(*Config),
+			n:   n,
+			u:   u,
+		})
+		if err != nil {
+			return mcp.NewToolResultError(err.Error()), nil
+		}
+		text := formatTimelineForView(events, cCtx.App.Metadata["config"].(*Config))
+		return mcp.NewToolResultText(text), nil
+	})
+
 	return server.ServeStdio(s)
 }

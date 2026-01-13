@@ -1332,3 +1332,47 @@ func callDelete(arg *deleteArg) error {
 	}
 	return nil
 }
+
+func formatTimelineForView(events []*nostr.Event, cfg *Config) string {
+	var sb strings.Builder
+
+	for i, ev := range events {
+		// Get author profile
+		npub, err := nip19.EncodePublicKey(ev.PubKey)
+		authorName := npub
+		if err == nil {
+			profile, err := cfg.GetProfile(npub)
+			if err == nil {
+				if profile.DisplayName != "" {
+					authorName = profile.DisplayName
+				} else if profile.Name != "" {
+					authorName = profile.Name
+				}
+			}
+		}
+
+		// Format post
+		sb.WriteString(fmt.Sprintf("#%d @%s\n", i+1, authorName))
+		sb.WriteString(ev.Content)
+		sb.WriteString(fmt.Sprintf("\n[ID: %s]\n\n", ev.ID))
+	}
+
+	return sb.String()
+}
+
+func doCat(cCtx *cli.Context) error {
+	j := cCtx.Bool("json")
+	extra := cCtx.Bool("extra")
+
+	cfg := cCtx.App.Metadata["config"].(*Config)
+
+	dec := json.NewDecoder(os.Stdin)
+	for dec.More() {
+		var ev nostr.Event
+		if err := dec.Decode(&ev); err != nil {
+			return err
+		}
+		cfg.PrintEvent(&ev, j, extra)
+	}
+	return nil
+}
