@@ -910,7 +910,7 @@ func doStream(cCtx *cli.Context) error {
 			}
 			var evr nostr.Event
 			evr.PubKey = pub
-			evr.Content = reply
+			evr.Content = re.ReplaceAllString(ev.Content, reply)
 			evr.Tags = nostr.Tags{}
 			clientTag(&evr)
 			for _, tag := range ev.Tags {
