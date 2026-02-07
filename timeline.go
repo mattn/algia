@@ -923,7 +923,7 @@ func doStream(cCtx *cli.Context) error {
 				}
 			}
 			evr.Tags = evr.Tags.AppendUnique(nostr.Tag{"e", ev.ID, "", "reply"})
-			evr.CreatedAt = nostr.Now()
+			evr.CreatedAt = ev.CreatedAt + 1
 			evr.Kind = ev.Kind
 			if err := evr.Sign(sk); err != nil {
 				return err
