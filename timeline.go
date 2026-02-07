@@ -910,7 +910,11 @@ func doStream(cCtx *cli.Context) error {
 			}
 			var evr nostr.Event
 			evr.PubKey = pub
-			evr.Content = re.ReplaceAllString(ev.Content, reply)
+			match := re.FindStringSubmatchIndex(ev.Content)
+			if match == nil {
+				continue
+			}
+			evr.Content = string(re.ExpandString(nil, reply, ev.Content, match))
 			evr.Tags = nostr.Tags{}
 			clientTag(&evr)
 			for _, tag := range ev.Tags {
