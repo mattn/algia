@@ -51,7 +51,7 @@ func doDMList(cCtx *cli.Context) error {
 		},
 	}
 	// Collect all events, then sort and display top n
-	if eevs, err := cfg.QueryEvents(filters); err != nil {
+	if eevs, err := cfg.QueryEvents(context.Background(), filters); err != nil {
 		return err
 	} else {
 		for _, ev := range eevs {
@@ -68,7 +68,7 @@ func doDMList(cCtx *cli.Context) error {
 		},
 	}
 	// Collect all events, then sort and display top n
-	if eevs, err := cfg.QueryEvents(filters); err != nil {
+	if eevs, err := cfg.QueryEvents(context.Background(), filters); err != nil {
 		return err
 	} else {
 		for _, ev := range eevs {
@@ -84,7 +84,7 @@ func doDMList(cCtx *cli.Context) error {
 			Limit: 9999,
 		},
 	}
-	if eevs, err := cfg.QueryEvents(filters); err == nil {
+	if eevs, err := cfg.QueryEvents(context.Background(), filters); err == nil {
 		for _, ev := range eevs {
 			evs = append(evs, ev)
 		}
@@ -208,7 +208,7 @@ func doDMTimeline(cCtx *cli.Context) error {
 		},
 	}
 	// Collect all events, then sort and display top n
-	if eevs, err := cfg.QueryEvents(filters); err != nil {
+	if eevs, err := cfg.QueryEvents(context.Background(), filters); err != nil {
 		return err
 	} else {
 		for _, ev := range eevs {
@@ -226,7 +226,7 @@ func doDMTimeline(cCtx *cli.Context) error {
 		},
 	}
 	// Collect all events, then sort and display top n
-	if eevs, err := cfg.QueryEvents(filters); err != nil {
+	if eevs, err := cfg.QueryEvents(context.Background(), filters); err != nil {
 		return err
 	} else {
 		for _, ev := range eevs {
@@ -242,7 +242,7 @@ func doDMTimeline(cCtx *cli.Context) error {
 			Limit: 9999,
 		},
 	}
-	if eevs, err := cfg.QueryEvents(filters); err == nil {
+	if eevs, err := cfg.QueryEvents(context.Background(), filters); err == nil {
 		for _, ev := range eevs {
 			// Validate participants for kind 1059
 			if ev.Kind != 14 {
@@ -362,7 +362,7 @@ func doDMPost(cCtx *cli.Context) error {
 		}
 
 		var success atomic.Int64
-		cfg.Do(Relay{Write: true, DM: true}, func(ctx context.Context, relay *nostr.Relay) bool {
+		cfg.Do(context.Background(), Relay{Write: true, DM: true}, func(ctx context.Context, relay *nostr.Relay) bool {
 			err := relay.Publish(ctx, ev)
 			if err != nil {
 				fmt.Fprintln(os.Stderr, relay.URL, err)
@@ -396,7 +396,7 @@ func doDMPost(cCtx *cli.Context) error {
 				Authors: []string{pub},
 			},
 		}
-		revs, err := cfg.QueryEvents(filters)
+		revs, err := cfg.QueryEvents(context.Background(), filters)
 		if err != nil {
 			return err
 		}
@@ -421,7 +421,7 @@ func doDMPost(cCtx *cli.Context) error {
 
 		// Publish sender's gift wrap to sender's own relays
 		var success atomic.Int64
-		cfg.Do(Relay{Write: true, DM: true}, func(ctx context.Context, relay *nostr.Relay) bool {
+		cfg.Do(context.Background(), Relay{Write: true, DM: true}, func(ctx context.Context, relay *nostr.Relay) bool {
 			err := relay.Publish(ctx, senderWrap)
 			if err != nil {
 				fmt.Fprintln(os.Stderr, relay.URL, err)

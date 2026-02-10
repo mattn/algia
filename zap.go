@@ -149,7 +149,7 @@ func (cfg *Config) ZapInfo(pub string) (*Lnurlp, error) {
 		},
 	}
 
-	evs, err := cfg.QueryEvents(filters)
+	evs, err := cfg.QueryEvents(context.Background(), filters)
 	if err != nil {
 		return nil, err
 	}
@@ -198,6 +198,7 @@ func doZap(cCtx *cli.Context) error {
 }
 
 type zapArg struct {
+	ctx     context.Context
 	cfg     *Config
 	amount  uint64
 	comment string
@@ -246,7 +247,7 @@ func callZap(arg *zapArg) error {
 					IDs: []string{s.(string)},
 				},
 			}
-			evs, err := arg.cfg.QueryEvents(filters)
+			evs, err := arg.cfg.QueryEvents(context.Background(), filters)
 			if err != nil {
 				return err
 			}

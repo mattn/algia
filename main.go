@@ -385,9 +385,9 @@ func (cfg *Config) GetProfile(npub string) (*Profile, error) {
 }
 
 // Do is
-func (cfg *Config) Do(r Relay, f func(context.Context, *nostr.Relay) bool) {
+func (cfg *Config) Do(ctx context.Context, r Relay, f func(context.Context, *nostr.Relay) bool) {
 	var wg sync.WaitGroup
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 	for k, v := range cfg.Relays {
 		if !cfg.tempRelay {
@@ -641,8 +641,8 @@ func includeKind(kinds []int, candidates ...int) bool {
 }
 
 // QueryEvents is
-func (cfg *Config) QueryEvents(filters nostr.Filters) ([]*nostr.Event, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+func (cfg *Config) QueryEvents(ctx context.Context, filters nostr.Filters) ([]*nostr.Event, error) {
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 
 	// Get read relays

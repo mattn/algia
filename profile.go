@@ -87,7 +87,7 @@ func doUpdateProfile(cCtx *cli.Context) error {
 		},
 	}
 
-	evs, err := cfg.QueryEvents(filters)
+	evs, err := cfg.QueryEvents(context.Background(), filters)
 	if err != nil {
 		return err
 	}
@@ -150,7 +150,7 @@ func doUpdateProfile(cCtx *cli.Context) error {
 	}
 
 	var success atomic.Int64
-	cfg.Do(Relay{Write: true}, func(ctx context.Context, relay *nostr.Relay) bool {
+	cfg.Do(context.Background(), Relay{Write: true}, func(ctx context.Context, relay *nostr.Relay) bool {
 		err := relay.Publish(ctx, *ev)
 		if err != nil {
 			fmt.Fprintln(os.Stderr, relay.URL, err)

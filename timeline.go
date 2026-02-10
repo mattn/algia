@@ -58,6 +58,7 @@ func doPost(cCtx *cli.Context) error {
 }
 
 type postArg struct {
+	ctx            context.Context
 	cfg            *Config
 	content        string
 	sensitive      string
@@ -154,7 +155,7 @@ func callPost(arg *postArg) error {
 	}
 
 	var success atomic.Int64
-	arg.cfg.Do(Relay{Write: true}, func(ctx context.Context, relay *nostr.Relay) bool {
+	arg.cfg.Do(arg.ctx, Relay{Write: true}, func(ctx context.Context, relay *nostr.Relay) bool {
 		err := relay.Publish(ctx, ev)
 		if err != nil {
 			fmt.Fprintln(os.Stderr, relay.URL, err)
@@ -229,7 +230,7 @@ func doEvent(cCtx *cli.Context) error {
 	}
 
 	var success atomic.Int64
-	cfg.Do(Relay{Write: true}, func(ctx context.Context, relay *nostr.Relay) bool {
+	cfg.Do(context.Background(), Relay{Write: true}, func(ctx context.Context, relay *nostr.Relay) bool {
 		err := relay.Publish(ctx, ev)
 		if err != nil {
 			fmt.Fprintln(os.Stderr, relay.URL, err)
@@ -336,7 +337,7 @@ func doReply(cCtx *cli.Context) error {
 	}
 
 	var success atomic.Int64
-	cfg.Do(Relay{Write: true}, func(ctx context.Context, relay *nostr.Relay) bool {
+	cfg.Do(context.Background(), Relay{Write: true}, func(ctx context.Context, relay *nostr.Relay) bool {
 		if !quote {
 			ev.Tags = ev.Tags.AppendUnique(nostr.Tag{"e", id, relay.URL, "reply"})
 		} else {
@@ -399,7 +400,7 @@ func doRepost(cCtx *cli.Context) error {
 	first.Store(true)
 
 	var success atomic.Int64
-	cfg.Do(Relay{Write: true}, func(ctx context.Context, relay *nostr.Relay) bool {
+	cfg.Do(context.Background(), Relay{Write: true}, func(ctx context.Context, relay *nostr.Relay) bool {
 		if first.Load() {
 			evs, err := relay.QuerySync(ctx, filter)
 			if err != nil {
@@ -454,7 +455,7 @@ func doUnrepost(cCtx *cli.Context) error {
 	}
 	var repostID string
 	var mu sync.Mutex
-	cfg.Do(Relay{Write: true}, func(ctx context.Context, relay *nostr.Relay) bool {
+	cfg.Do(context.Background(), Relay{Write: true}, func(ctx context.Context, relay *nostr.Relay) bool {
 		evs, err := relay.QuerySync(ctx, filter)
 		if err != nil {
 			return true
@@ -476,7 +477,7 @@ func doUnrepost(cCtx *cli.Context) error {
 	}
 
 	var success atomic.Int64
-	cfg.Do(Relay{Write: true}, func(ctx context.Context, relay *nostr.Relay) bool {
+	cfg.Do(context.Background(), Relay{Write: true}, func(ctx context.Context, relay *nostr.Relay) bool {
 		err := relay.Publish(ctx, ev)
 		if err != nil {
 			fmt.Fprintln(os.Stderr, relay.URL, err)
@@ -501,6 +502,7 @@ func doLike(cCtx *cli.Context) error {
 }
 
 type likeArg struct {
+	ctx     context.Context
 	cfg     *Config
 	id      string
 	content string
@@ -553,7 +555,7 @@ func callLike(arg *likeArg) error {
 	first.Store(true)
 
 	var success atomic.Int64
-	arg.cfg.Do(Relay{Write: true}, func(ctx context.Context, relay *nostr.Relay) bool {
+	arg.cfg.Do(arg.ctx, Relay{Write: true}, func(ctx context.Context, relay *nostr.Relay) bool {
 		if first.Load() {
 			evs, err := relay.QuerySync(ctx, filter)
 			if err != nil {
@@ -609,7 +611,7 @@ func doUnlike(cCtx *cli.Context) error {
 	}
 	var likeID string
 	var mu sync.Mutex
-	cfg.Do(Relay{Write: true}, func(ctx context.Context, relay *nostr.Relay) bool {
+	cfg.Do(context.Background(), Relay{Write: true}, func(ctx context.Context, relay *nostr.Relay) bool {
 		evs, err := relay.QuerySync(ctx, filter)
 		if err != nil {
 			return true
@@ -631,7 +633,7 @@ func doUnlike(cCtx *cli.Context) error {
 	}
 
 	var success atomic.Int64
-	cfg.Do(Relay{Write: true}, func(ctx context.Context, relay *nostr.Relay) bool {
+	cfg.Do(context.Background(), Relay{Write: true}, func(ctx context.Context, relay *nostr.Relay) bool {
 		err := relay.Publish(ctx, ev)
 		if err != nil {
 			fmt.Fprintln(os.Stderr, relay.URL, err)
@@ -680,7 +682,7 @@ func doDelete(cCtx *cli.Context) error {
 	}
 
 	var success atomic.Int64
-	cfg.Do(Relay{Write: true}, func(ctx context.Context, relay *nostr.Relay) bool {
+	cfg.Do(context.Background(), Relay{Write: true}, func(ctx context.Context, relay *nostr.Relay) bool {
 		err := relay.Publish(ctx, ev)
 		if err != nil {
 			fmt.Fprintln(os.Stderr, relay.URL, err)
@@ -713,6 +715,7 @@ func doSearch(cCtx *cli.Context) error {
 }
 
 type searchArg struct {
+	ctx    context.Context
 	cfg    *Config
 	search string
 	n      int
@@ -728,7 +731,7 @@ func callSearch(arg *searchArg) ([]*nostr.Event, error) {
 		},
 	}
 
-	return arg.cfg.QueryEvents(filters)
+	return arg.cfg.QueryEvents(arg.ctx, filters)
 }
 
 func doBroadcast(cCtx *cli.Context) error {
@@ -772,7 +775,7 @@ func doBroadcast(cCtx *cli.Context) error {
 			ev = evs[0]
 		}
 	} else {
-		cfg.Do(Relay{Read: true}, func(ctx context.Context, relay *nostr.Relay) bool {
+		cfg.Do(context.Background(), Relay{Read: true}, func(ctx context.Context, relay *nostr.Relay) bool {
 			if relay.URL == from {
 				return true
 			}
@@ -794,7 +797,7 @@ func doBroadcast(cCtx *cli.Context) error {
 	}
 
 	var success atomic.Int64
-	cfg.Do(Relay{Write: true}, func(ctx context.Context, relay *nostr.Relay) bool {
+	cfg.Do(context.Background(), Relay{Write: true}, func(ctx context.Context, relay *nostr.Relay) bool {
 		err := relay.Publish(ctx, *ev)
 		if err != nil {
 			fmt.Fprintln(os.Stderr, relay.URL, err)
@@ -928,7 +931,7 @@ func doStream(cCtx *cli.Context) error {
 			if err := evr.Sign(sk); err != nil {
 				return err
 			}
-			cfg.Do(Relay{Write: true}, func(ctx context.Context, relay *nostr.Relay) bool {
+			cfg.Do(context.Background(), Relay{Write: true}, func(ctx context.Context, relay *nostr.Relay) bool {
 				relay.Publish(ctx, evr)
 				return true
 			})
@@ -961,6 +964,7 @@ func doTimeline(cCtx *cli.Context) error {
 }
 
 type timelineArg struct {
+	ctx     context.Context
 	cfg     *Config
 	global  bool
 	u       string
@@ -1051,7 +1055,7 @@ func postMsg(cCtx *cli.Context, msg string) error {
 	}
 
 	var success atomic.Int64
-	cfg.Do(Relay{Write: true}, func(ctx context.Context, relay *nostr.Relay) bool {
+	cfg.Do(context.Background(), Relay{Write: true}, func(ctx context.Context, relay *nostr.Relay) bool {
 		err := relay.Publish(ctx, ev)
 		if err != nil {
 			fmt.Fprintln(os.Stderr, relay.URL, err)
@@ -1075,6 +1079,7 @@ func doPuru(cCtx *cli.Context) error {
 }
 
 type replyArg struct {
+	ctx     context.Context
 	cfg     *Config
 	id      string
 	content string
@@ -1128,7 +1133,7 @@ func callReply(arg *replyArg) error {
 	}
 
 	var success atomic.Int64
-	arg.cfg.Do(Relay{Write: true}, func(ctx context.Context, relay *nostr.Relay) bool {
+	arg.cfg.Do(arg.ctx, Relay{Write: true}, func(ctx context.Context, relay *nostr.Relay) bool {
 		ev.Tags = ev.Tags.AppendUnique(nostr.Tag{"e", id, relay.URL, "reply"})
 		if err := ev.Sign(sk); err != nil {
 			return true
@@ -1148,6 +1153,7 @@ func callReply(arg *replyArg) error {
 }
 
 type repostArg struct {
+	ctx context.Context
 	cfg *Config
 	id  string
 }
@@ -1190,7 +1196,7 @@ func callRepost(arg *repostArg) error {
 	first.Store(true)
 
 	var success atomic.Int64
-	arg.cfg.Do(Relay{Write: true}, func(ctx context.Context, relay *nostr.Relay) bool {
+	arg.cfg.Do(arg.ctx, Relay{Write: true}, func(ctx context.Context, relay *nostr.Relay) bool {
 		if first.Load() {
 			evs, err := relay.QuerySync(ctx, filter)
 			if err != nil {
@@ -1219,6 +1225,7 @@ func callRepost(arg *repostArg) error {
 }
 
 type unrepostArg struct {
+	ctx context.Context
 	cfg *Config
 	id  string
 }
@@ -1248,7 +1255,7 @@ func callUnrepost(arg *unrepostArg) error {
 	}
 	var repostID string
 	var mu sync.Mutex
-	arg.cfg.Do(Relay{Write: true}, func(ctx context.Context, relay *nostr.Relay) bool {
+	arg.cfg.Do(arg.ctx, Relay{Write: true}, func(ctx context.Context, relay *nostr.Relay) bool {
 		evs, err := relay.QuerySync(ctx, filter)
 		if err != nil {
 			return true
@@ -1270,7 +1277,7 @@ func callUnrepost(arg *unrepostArg) error {
 	}
 
 	var success atomic.Int64
-	arg.cfg.Do(Relay{Write: true}, func(ctx context.Context, relay *nostr.Relay) bool {
+	arg.cfg.Do(arg.ctx, Relay{Write: true}, func(ctx context.Context, relay *nostr.Relay) bool {
 		err := relay.Publish(ctx, ev)
 		if err != nil {
 			fmt.Fprintln(os.Stderr, relay.URL, err)
@@ -1286,6 +1293,7 @@ func callUnrepost(arg *unrepostArg) error {
 }
 
 type deleteArg struct {
+	ctx context.Context
 	cfg *Config
 	id  string
 }
@@ -1322,7 +1330,7 @@ func callDelete(arg *deleteArg) error {
 	}
 
 	var success atomic.Int64
-	arg.cfg.Do(Relay{Write: true}, func(ctx context.Context, relay *nostr.Relay) bool {
+	arg.cfg.Do(arg.ctx, Relay{Write: true}, func(ctx context.Context, relay *nostr.Relay) bool {
 		err := relay.Publish(ctx, ev)
 		if err != nil {
 			fmt.Fprintln(os.Stderr, relay.URL, err)

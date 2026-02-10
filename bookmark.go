@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"errors"
 
 	"github.com/urfave/cli/v2"
@@ -37,7 +38,7 @@ func doBMList(cCtx *cli.Context) error {
 	}
 
 	be := []string{}
-	evs, err := cfg.QueryEvents(nostr.Filters{filter})
+	evs, err := cfg.QueryEvents(context.Background(), nostr.Filters{filter})
 	if err != nil {
 		return err
 	}
@@ -52,7 +53,7 @@ func doBMList(cCtx *cli.Context) error {
 		Kinds: []int{nostr.KindTextNote},
 		IDs:   be,
 	}
-	eevs, err := cfg.QueryEvents(nostr.Filters{filter})
+	eevs, err := cfg.QueryEvents(context.Background(), nostr.Filters{filter})
 	if err != nil {
 		return err
 	}

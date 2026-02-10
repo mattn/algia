@@ -52,6 +52,7 @@ func doMcp(cCtx *cli.Context) error {
 		mcp.WithString("id", mcp.Description("The event ID (hex string) of the note to like"), mcp.Required()),
 	), func(ctx context.Context, r mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		err := callLike(&likeArg{
+			ctx: ctx,
 			cfg: cCtx.App.Metadata["config"].(*Config),
 			id:  required[string](r, "id"),
 		})
@@ -67,6 +68,7 @@ func doMcp(cCtx *cli.Context) error {
 		mcp.WithNumber("amount_sats", mcp.Description("Amount in satoshis"), mcp.Required()),
 	), func(ctx context.Context, r mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		err := callZap(&zapArg{
+			ctx:    ctx,
 			cfg:    cCtx.App.Metadata["config"].(*Config),
 			id:     required[string](r, "id"),
 			amount: required[uint64](r, "amount_sats"),
@@ -81,6 +83,7 @@ func doMcp(cCtx *cli.Context) error {
 		mcp.WithString("content", mcp.Description("Content of the note"), mcp.Required()),
 	), func(ctx context.Context, r mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		err := callPost(&postArg{
+			ctx:     ctx,
 			cfg:     cCtx.App.Metadata["config"].(*Config),
 			content: required[string](r, "content"),
 		})
@@ -97,6 +100,7 @@ func doMcp(cCtx *cli.Context) error {
 		mcp.WithOutputSchema[[]*nostr.Event](),
 	), mcp.NewStructuredToolHandler(func(ctx context.Context, r mcp.CallToolRequest, arg any) ([]*nostr.Event, error) {
 		events, err := callTimeline(&timelineArg{
+			ctx: ctx,
 			cfg: cCtx.App.Metadata["config"].(*Config),
 			n:   r.GetInt("number", 10),
 			u:   r.GetString("user", ""),
@@ -113,8 +117,10 @@ func doMcp(cCtx *cli.Context) error {
 		mcp.WithOutputSchema[[]*nostr.Event](),
 	), mcp.NewStructuredToolHandler(func(ctx context.Context, r mcp.CallToolRequest, arg any) ([]*nostr.Event, error) {
 		events, err := callSearch(&searchArg{
+			ctx:    ctx,
 			cfg:    cCtx.App.Metadata["config"].(*Config),
 			search: required[string](r, "search"),
+			n:      r.GetInt("number", 10),
 		})
 		if err != nil {
 			return nil, err
@@ -128,6 +134,7 @@ func doMcp(cCtx *cli.Context) error {
 		mcp.WithString("content", mcp.Description("Content of the reply"), mcp.Required()),
 	), func(ctx context.Context, r mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		err := callReply(&replyArg{
+			ctx:     ctx,
 			cfg:     cCtx.App.Metadata["config"].(*Config),
 			id:      required[string](r, "id"),
 			content: required[string](r, "content"),
@@ -143,6 +150,7 @@ func doMcp(cCtx *cli.Context) error {
 		mcp.WithString("id", mcp.Description("The event ID (hex string) of the note to repost"), mcp.Required()),
 	), func(ctx context.Context, r mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		err := callRepost(&repostArg{
+			ctx: ctx,
 			cfg: cCtx.App.Metadata["config"].(*Config),
 			id:  required[string](r, "id"),
 		})
@@ -157,6 +165,7 @@ func doMcp(cCtx *cli.Context) error {
 		mcp.WithString("id", mcp.Description("The event ID (hex string) of the note to unrepost"), mcp.Required()),
 	), func(ctx context.Context, r mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		err := callUnrepost(&unrepostArg{
+			ctx: ctx,
 			cfg: cCtx.App.Metadata["config"].(*Config),
 			id:  required[string](r, "id"),
 		})
@@ -171,6 +180,7 @@ func doMcp(cCtx *cli.Context) error {
 		mcp.WithString("id", mcp.Description("The event ID (hex string) of the note to delete"), mcp.Required()),
 	), func(ctx context.Context, r mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		err := callDelete(&deleteArg{
+			ctx: ctx,
 			cfg: cCtx.App.Metadata["config"].(*Config),
 			id:  required[string](r, "id"),
 		})
@@ -202,6 +212,7 @@ func doMcp(cCtx *cli.Context) error {
 		n := r.GetInt("number", 10)
 		u := r.GetString("user", "")
 		events, err := callTimeline(&timelineArg{
+			ctx: ctx,
 			cfg: cCtx.App.Metadata["config"].(*Config),
 			n:   n,
 			u:   u,
