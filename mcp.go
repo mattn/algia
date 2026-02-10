@@ -108,8 +108,8 @@ func doMcp(cCtx *cli.Context) error {
 	}))
 
 	s.AddTool(mcp.NewTool("search_nostr_notes",
-		mcp.WithDescription("search nostr notes"),
-		mcp.WithString("search", mcp.Description("words for search"), mcp.Required()),
+		mcp.WithDescription("Search Nostr relay for notes containing specific keywords. This searches ONLY the Nostr decentralized social network, not the general web. Use this for finding posts, tweets, or social content on Nostr. For general web search, use web_search tool instead."),
+		mcp.WithString("search", mcp.Description("Keywords to search for in Nostr notes/posts"), mcp.Required()),
 		mcp.WithOutputSchema[[]*nostr.Event](),
 	), mcp.NewStructuredToolHandler(func(ctx context.Context, r mcp.CallToolRequest, arg any) ([]*nostr.Event, error) {
 		events, err := callSearch(&searchArg{
