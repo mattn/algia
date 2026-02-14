@@ -190,6 +190,7 @@ func doZap(cCtx *cli.Context) error {
 		return cli.ShowSubcommandHelp(cCtx)
 	}
 	return callZap(&zapArg{
+		ctx:     cCtx.Context,
 		cfg:     cCtx.App.Metadata["config"].(*Config),
 		amount:  cCtx.Uint64("amount"),
 		comment: cCtx.String("comment"),

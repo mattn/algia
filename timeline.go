@@ -45,6 +45,7 @@ func doPost(cCtx *cli.Context) error {
 		content = strings.Join(cCtx.Args().Slice(), "\n")
 	}
 	return callPost(&postArg{
+		ctx:            cCtx.Context,
 		cfg:            cCtx.App.Metadata["config"].(*Config),
 		content:        content,
 		sensitive:      cCtx.String("sensitive"),
@@ -494,6 +495,7 @@ func doUnrepost(cCtx *cli.Context) error {
 
 func doLike(cCtx *cli.Context) error {
 	return callLike(&likeArg{
+		ctx:     cCtx.Context,
 		cfg:     cCtx.App.Metadata["config"].(*Config),
 		id:      cCtx.String("id"),
 		content: cCtx.String("content"),
