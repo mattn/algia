@@ -865,6 +865,154 @@ func clientTag(ev *nostr.Event) {
 	ev.Tags = ev.Tags.AppendUnique(nostr.Tag{"client", "algia", "31990:2c7cc62a697ea3a7826521f3fd34f0cb273693cbe5e9310f35449f43622a5cdc:1727520612646", "wss://nostr.compile-error.net"})
 }
 
+func doReport(cCtx *cli.Context) error {
+	cfg := cCtx.App.Metadata["config"].(*Config)
+
+	reportType := cCtx.String("type")
+	targetID := cCtx.String("id")
+
+	if reportType == "" || targetID == "" {
+		return fmt.Errorf("both --type and --id are required")
+	}
+
+	var targetPubkey string
+	var targetEventID string
+
+	// Check if target is a profile (npub) or event (nevent/note)
+	if _, decoded, err := nip19.Decode(targetID); err == nil {
+		if decoded == nil {
+			return fmt.Errorf("invalid target format")
+		}
+
+		switch decoded.(type) {
+		case string:
+			// Could be npub or hex pubkey
+			targetPubkey = decoded.(string)
+		case map[string]interface{}:
+			// nevent format
+			if e, ok := decoded.(map[string]interface{})["e"]; ok {
+				if eStr, ok := e.(string); ok {
+					targetEventID = eStr
+				}
+			}
+			if p, ok := decoded.(map[string]interface{})["p"]; ok {
+				if pStr, ok := p.(string); ok {
+					targetPubkey = pStr
+				}
+			}
+			if targetEventID == "" && targetPubkey == "" {
+				return fmt.Errorf("invalid nevent format")
+			}
+		default:
+			return fmt.Errorf("unsupported target format")
+		}
+	} else {
+		// Try to extract pubkey from npub
+		if prefix, decoded, err := nip19.Decode(targetID); err == nil && prefix == "npub" {
+			if pubkey, ok := decoded.(string); ok {
+				targetPubkey = pubkey
+			}
+		} else {
+			// Assume it's a note/event ID
+			targetEventID = targetID
+		}
+	}
+
+	// Get relays to write to
+	relays := []string{}
+	for k, v := range cfg.Relays {
+		if v.Write {
+			relays = append(relays, k)
+		}
+	}
+
+	if len(relays) == 0 {
+		return fmt.Errorf("no write relays available")
+	}
+
+	// Create report event
+	report := &nostr.Event{
+		PubKey:    "",
+		CreatedAt: nostr.Timestamp(time.Now().Unix()),
+		Kind:      1984,
+		Tags: nostr.Tags{
+			nostr.Tag{"d", reportType},
+		},
+		Content: fmt.Sprintf("Reported: %s", reportType),
+	}
+
+	// Sign event
+	sk := cfg.sk
+	if sk == "" {
+		if _, s, err := nip19.Decode(cfg.PrivateKey); err == nil {
+			sk = s.(string)
+		}
+	}
+	if sk == "" {
+		return fmt.Errorf("no private key found")
+	}
+
+	pub, err := nostr.GetPublicKey(sk)
+	if err != nil {
+		return err
+	}
+	report.PubKey = pub
+
+	// Add target tag
+	if targetPubkey != "" {
+		report.Tags = append(report.Tags, nostr.Tag{"p", targetPubkey})
+	}
+	if targetEventID != "" {
+		report.Tags = append(report.Tags, nostr.Tag{"e", targetEventID})
+	}
+
+	// Sign
+	if err := report.Sign(sk); err != nil {
+		return err
+	}
+
+	if cfg.verbose {
+		fmt.Printf("Created report event kind 1984\n")
+		fmt.Printf("Report type: %s\n", reportType)
+		if targetPubkey != "" {
+			fmt.Printf("Target pubkey: %s\n", targetPubkey)
+		}
+		if targetEventID != "" {
+			fmt.Printf("Target event: %s\n", targetEventID)
+		}
+		fmt.Printf("Relays: %v\n", relays)
+	}
+
+	// Publish to relays
+	relaysToPublish := make(map[string]bool)
+	for _, relay := range relays {
+		relaysToPublish[relay] = true
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	for relayURL := range relaysToPublish {
+		relay, err := nostr.RelayConnect(ctx, relayURL)
+		if err != nil {
+			if cfg.verbose {
+				fmt.Fprintf(os.Stderr, "Failed to connect to relay %s: %v\n", relayURL, err)
+			}
+			continue
+		}
+		defer relay.Close()
+
+		err = relay.Publish(ctx, *report)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Failed to publish to relay %s: %v\n", relayURL, err)
+		} else {
+			fmt.Printf("Report sent to %s\n", relayURL)
+		}
+	}
+
+	return nil
+}
+
 func main() {
 	app := &cli.App{
 		Usage:       "A cli application for nostr",
@@ -1156,6 +1304,18 @@ func main() {
 				UsageText: "cat nostr.nljson | algia cat",
 				HelpName:  "cat",
 				Action:    doCat,
+			},
+			{
+				Name:    "report",
+				Aliases: []string{"rep"},
+				Flags: []cli.Flag{
+					&cli.StringFlag{Name: "type", Required: true, Usage: "report type (e.g., spam, malware, scam, fake-profile)"},
+					&cli.StringFlag{Name: "id", Required: true, Usage: "event id or npub to report"},
+				},
+				Usage:     "report an event or profile",
+				UsageText: "algia report --type [type] --id [id]",
+				HelpName:  "report",
+				Action:    doReport,
 			},
 		},
 		Before: func(cCtx *cli.Context) error {

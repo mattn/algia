@@ -12,6 +12,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/urfave/cli/v2"
 
@@ -1388,5 +1389,251 @@ func doCat(cCtx *cli.Context) error {
 		}
 		cfg.PrintEvent(&ev, j, extra)
 	}
+	return nil
+}
+
+type reportArg struct {
+	ctx        context.Context
+	cfg        *Config
+	id         string
+	reportType string
+}
+
+func callReport(arg *reportArg) error {
+	sk := arg.cfg.sk
+	if sk == "" {
+		if _, s, err := nip19.Decode(arg.cfg.PrivateKey); err == nil {
+			sk = s.(string)
+		} else {
+			return err
+		}
+	}
+	if sk == "" {
+		return fmt.Errorf("no private key found")
+	}
+
+	pub, err := nostr.GetPublicKey(sk)
+	if err != nil {
+		return err
+	}
+
+	targetID := arg.id
+	var targetPubkey string
+	var targetEventID string
+
+	// Decode the target ID
+	if _, decoded, err := nip19.Decode(targetID); err == nil {
+		if decoded == nil {
+			return fmt.Errorf("invalid target format")
+		}
+
+		switch decoded.(type) {
+		case string:
+			targetPubkey = decoded.(string)
+		case map[string]interface{}:
+			if e, ok := decoded.(map[string]interface{})["e"]; ok {
+				if eStr, ok := e.(string); ok {
+					targetEventID = eStr
+				}
+			}
+			if p, ok := decoded.(map[string]interface{})["p"]; ok {
+				if pStr, ok := p.(string); ok {
+					targetPubkey = pStr
+				}
+			}
+		default:
+			return fmt.Errorf("unsupported target format")
+		}
+	} else {
+		if prefix, decoded, err := nip19.Decode(targetID); err == nil && prefix == "npub" {
+			if pubkey, ok := decoded.(string); ok {
+				targetPubkey = pubkey
+			}
+		} else {
+			targetEventID = targetID
+		}
+	}
+
+	report := &nostr.Event{
+		PubKey:    pub,
+		CreatedAt: nostr.Timestamp(time.Now().Unix()),
+		Kind:      1984,
+		Tags: nostr.Tags{
+			nostr.Tag{"d", arg.reportType},
+		},
+		Content: fmt.Sprintf("Reported: %s", arg.reportType),
+	}
+
+	if targetPubkey != "" {
+		report.Tags = append(report.Tags, nostr.Tag{"p", targetPubkey})
+	}
+	if targetEventID != "" {
+		report.Tags = append(report.Tags, nostr.Tag{"e", targetEventID})
+	}
+
+	if err := report.Sign(sk); err != nil {
+		return err
+	}
+
+	if arg.cfg.verbose {
+		fmt.Printf("Created report event kind 1984\n")
+		fmt.Printf("Report type: %s\n", arg.reportType)
+		if targetPubkey != "" {
+			fmt.Printf("Target pubkey: %s\n", targetPubkey)
+		}
+		if targetEventID != "" {
+			fmt.Printf("Target event: %s\n", targetEventID)
+		}
+	}
+
+	relays := []string{}
+	for k, v := range arg.cfg.Relays {
+		if v.Write {
+			relays = append(relays, k)
+		}
+	}
+
+	if len(relays) == 0 {
+		return fmt.Errorf("no write relays available")
+	}
+
+	ctx, cancel := context.WithTimeout(arg.ctx, 10*time.Second)
+	defer cancel()
+
+	for _, relayURL := range relays {
+		relay, err := nostr.RelayConnect(ctx, relayURL)
+		if err != nil {
+			if arg.cfg.verbose {
+				fmt.Fprintf(os.Stderr, "Failed to connect to relay %s: %v\n", relayURL, err)
+			}
+			continue
+		}
+		defer relay.Close()
+
+		err = relay.Publish(ctx, *report)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Failed to publish to relay %s: %v\n", relayURL, err)
+		} else {
+			fmt.Printf("Report sent to %s\n", relayURL)
+		}
+	}
+
+	return nil
+}
+
+type reportProfileArg struct {
+	ctx        context.Context
+	cfg        *Config
+	user       string
+	reportType string
+}
+
+func callReportProfile(arg *reportProfileArg) error {
+	sk := arg.cfg.sk
+	if sk == "" {
+		if _, s, err := nip19.Decode(arg.cfg.PrivateKey); err == nil {
+			sk = s.(string)
+		} else {
+			return err
+		}
+	}
+	if sk == "" {
+		return fmt.Errorf("no private key found")
+	}
+
+	pub, err := nostr.GetPublicKey(sk)
+	if err != nil {
+		return err
+	}
+
+	var targetPubkey string
+
+	// Decode the user ID
+	if _, decoded, err := nip19.Decode(arg.user); err == nil {
+		if decoded == nil {
+			return fmt.Errorf("invalid target format")
+		}
+
+		switch decoded.(type) {
+		case string:
+			targetPubkey = decoded.(string)
+		case map[string]interface{}:
+			if p, ok := decoded.(map[string]interface{})["p"]; ok {
+				if pStr, ok := p.(string); ok {
+					targetPubkey = pStr
+				}
+			}
+		default:
+			return fmt.Errorf("unsupported target format")
+		}
+	} else {
+		if prefix, decoded, err := nip19.Decode(arg.user); err == nil && prefix == "npub" {
+			if pubkey, ok := decoded.(string); ok {
+				targetPubkey = pubkey
+			} else {
+				return fmt.Errorf("invalid npub format")
+			}
+		} else {
+			// Assume it's a hex public key
+			targetPubkey = arg.user
+		}
+	}
+
+	report := &nostr.Event{
+		PubKey:    pub,
+		CreatedAt: nostr.Timestamp(time.Now().Unix()),
+		Kind:      1984,
+		Tags: nostr.Tags{
+			nostr.Tag{"d", arg.reportType},
+		},
+		Content: fmt.Sprintf("Reported: %s", arg.reportType),
+	}
+
+	if targetPubkey != "" {
+		report.Tags = append(report.Tags, nostr.Tag{"p", targetPubkey})
+	}
+
+	if err := report.Sign(sk); err != nil {
+		return err
+	}
+
+	if arg.cfg.verbose {
+		fmt.Printf("Created report event kind 1984\n")
+		fmt.Printf("Report type: %s\n", arg.reportType)
+		fmt.Printf("Target pubkey: %s\n", targetPubkey)
+	}
+
+	relays := []string{}
+	for k, v := range arg.cfg.Relays {
+		if v.Write {
+			relays = append(relays, k)
+		}
+	}
+
+	if len(relays) == 0 {
+		return fmt.Errorf("no write relays available")
+	}
+
+	ctx, cancel := context.WithTimeout(arg.ctx, 10*time.Second)
+	defer cancel()
+
+	for _, relayURL := range relays {
+		relay, err := nostr.RelayConnect(ctx, relayURL)
+		if err != nil {
+			if arg.cfg.verbose {
+				fmt.Fprintf(os.Stderr, "Failed to connect to relay %s: %v\n", relayURL, err)
+			}
+			continue
+		}
+		defer relay.Close()
+
+		err = relay.Publish(ctx, *report)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Failed to publish to relay %s: %v\n", relayURL, err)
+		} else {
+			fmt.Printf("Report sent to %s\n", relayURL)
+		}
+	}
+
 	return nil
 }

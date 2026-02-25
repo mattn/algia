@@ -224,5 +224,39 @@ func doMcp(cCtx *cli.Context) error {
 		return mcp.NewToolResultText(text), nil
 	})
 
+	s.AddTool(mcp.NewTool("report_nostr_note",
+		mcp.WithDescription("Report a Nostr note for violation. Creates a kind 1984 report event with the specified report type and target note/event ID."),
+		mcp.WithString("id", mcp.Description("The event ID (hex string) or nevent of the note to report"), mcp.Required()),
+		mcp.WithString("type", mcp.Description("Type of violation (e.g., spam, malware, scam, fake-profile, other)"), mcp.Required()),
+	), func(ctx context.Context, r mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		err := callReport(&reportArg{
+			ctx:        ctx,
+			cfg:        cCtx.App.Metadata["config"].(*Config),
+			id:         required[string](r, "id"),
+			reportType: required[string](r, "type"),
+		})
+		if err != nil {
+			return mcp.NewToolResultError(err.Error()), nil
+		}
+		return mcp.NewToolResultText("OK"), nil
+	})
+
+	s.AddTool(mcp.NewTool("report_nostr_profile",
+		mcp.WithDescription("Report a Nostr profile for violation. Creates a kind 1984 report event with the specified report type and target public key."),
+		mcp.WithString("user", mcp.Description("The public key (hex), npub, or nprofile of the profile to report"), mcp.Required()),
+		mcp.WithString("type", mcp.Description("Type of violation (e.g., spam, malware, scam, fake-profile, other)"), mcp.Required()),
+	), func(ctx context.Context, r mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		err := callReportProfile(&reportProfileArg{
+			ctx:        ctx,
+			cfg:        cCtx.App.Metadata["config"].(*Config),
+			user:       required[string](r, "user"),
+			reportType: required[string](r, "type"),
+		})
+		if err != nil {
+			return mcp.NewToolResultError(err.Error()), nil
+		}
+		return mcp.NewToolResultText("OK"), nil
+	})
+
 	return server.ServeStdio(s)
 }
