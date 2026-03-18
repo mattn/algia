@@ -258,5 +258,106 @@ func doMcp(cCtx *cli.Context) error {
 		return mcp.NewToolResultText("OK"), nil
 	})
 
+	s.AddTool(mcp.NewTool("list_nostr_lists",
+		mcp.WithDescription("List all NIP-51 lists and sets owned by the current user. Returns kind, label, name (for sets), and item count."),
+		mcp.WithNumber("kind", mcp.Description("Optional: filter by specific kind number (e.g. 10002 for relay list, 30000 for follow set)")),
+		mcp.WithOutputSchema[[]listEntry](),
+	), mcp.NewStructuredToolHandler(func(ctx context.Context, r mcp.CallToolRequest, arg any) ([]listEntry, error) {
+		kind := int(r.GetFloat("kind", 0))
+		entries, err := callList(&listArg{
+			ctx:  ctx,
+			cfg:  cCtx.App.Metadata["config"].(*Config),
+			kind: kind,
+		})
+		if err != nil {
+			return nil, err
+		}
+		return entries, nil
+	}))
+
+	s.AddTool(mcp.NewTool("show_nostr_list",
+		mcp.WithDescription("Show items in a NIP-51 list or set. For standard lists (kind 10000-19999), only kind is needed. For sets (kind >= 30000), name is also required."),
+		mcp.WithNumber("kind", mcp.Description("The list kind number (e.g. 10002 for relay list, 30000 for follow set)"), mcp.Required()),
+		mcp.WithString("name", mcp.Description("The set name (required for sets with kind >= 30000)")),
+	), func(ctx context.Context, r mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		cfg := cCtx.App.Metadata["config"].(*Config)
+		kind := int(required[float64](r, "kind"))
+		name, _ := optional[string](r, "name")
+		ev, err := callListShow(&listShowArg{
+			ctx:  ctx,
+			cfg:  cfg,
+			kind: kind,
+			name: name,
+		})
+		if err != nil {
+			return mcp.NewToolResultError(err.Error()), nil
+		}
+		text := formatListTags(cfg, ev)
+		return mcp.NewToolResultText(text), nil
+	})
+
+	s.AddTool(mcp.NewTool("add_to_nostr_list",
+		mcp.WithDescription("Add items to a NIP-51 list or set. Items are auto-detected: npub/nprofile -> p tag, note/nevent -> e tag, wss:// -> relay tag, #hashtag -> t tag."),
+		mcp.WithNumber("kind", mcp.Description("The list kind number"), mcp.Required()),
+		mcp.WithString("name", mcp.Description("The set name (required for sets with kind >= 30000)")),
+		mcp.WithString("item", mcp.Description("The item to add (npub, note, relay URL, hashtag, etc.)"), mcp.Required()),
+	), func(ctx context.Context, r mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		kind := int(required[float64](r, "kind"))
+		name, _ := optional[string](r, "name")
+		item := required[string](r, "item")
+		err := callListAdd(&listAddArg{
+			ctx:   ctx,
+			cfg:   cCtx.App.Metadata["config"].(*Config),
+			kind:  kind,
+			name:  name,
+			items: []string{item},
+		})
+		if err != nil {
+			return mcp.NewToolResultError(err.Error()), nil
+		}
+		return mcp.NewToolResultText("OK"), nil
+	})
+
+	s.AddTool(mcp.NewTool("remove_from_nostr_list",
+		mcp.WithDescription("Remove items from a NIP-51 list or set."),
+		mcp.WithNumber("kind", mcp.Description("The list kind number"), mcp.Required()),
+		mcp.WithString("name", mcp.Description("The set name (required for sets with kind >= 30000)")),
+		mcp.WithString("item", mcp.Description("The item to remove (npub, note, relay URL, hashtag, etc.)"), mcp.Required()),
+	), func(ctx context.Context, r mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		kind := int(required[float64](r, "kind"))
+		name, _ := optional[string](r, "name")
+		item := required[string](r, "item")
+		err := callListRemove(&listRemoveArg{
+			ctx:   ctx,
+			cfg:   cCtx.App.Metadata["config"].(*Config),
+			kind:  kind,
+			name:  name,
+			items: []string{item},
+		})
+		if err != nil {
+			return mcp.NewToolResultError(err.Error()), nil
+		}
+		return mcp.NewToolResultText("OK"), nil
+	})
+
+	s.AddTool(mcp.NewTool("delete_nostr_list",
+		mcp.WithDescription("Delete a NIP-51 list or set entirely."),
+		mcp.WithNumber("kind", mcp.Description("The list kind number"), mcp.Required()),
+		mcp.WithString("name", mcp.Description("The set name (required for sets with kind >= 30000)")),
+	), func(ctx context.Context, r mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		kind := int(required[float64](r, "kind"))
+		name, _ := optional[string](r, "name")
+		err := callListDelete(&listDeleteArg{
+			ctx:  ctx,
+			cfg:  cCtx.App.Metadata["config"].(*Config),
+			kind: kind,
+			name: name,
+		})
+		if err != nil {
+			return mcp.NewToolResultError(err.Error()), nil
+		}
+		return mcp.NewToolResultText("OK"), nil
+	})
+
 	return server.ServeStdio(s)
 }

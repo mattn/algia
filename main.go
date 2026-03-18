@@ -1306,6 +1306,62 @@ func main() {
 				Action:    doCat,
 			},
 			{
+				Name:  "list",
+				Usage: "show all lists",
+				Flags: []cli.Flag{
+					&cli.BoolFlag{Name: "json", Usage: "output JSON"},
+					&cli.IntFlag{Name: "kind", Usage: "filter by kind (e.g. 30000)"},
+				},
+				UsageText: "algia list",
+				HelpName:  "list",
+				Action:    doList,
+			},
+			{
+				Name: "list-show",
+				Flags: []cli.Flag{
+					&cli.BoolFlag{Name: "json", Usage: "output JSON"},
+					&cli.IntFlag{Name: "kind", Usage: "list kind (e.g. 10002 for relay list, 30000 for follow set)"},
+				},
+				Usage:     "show items in a list",
+				UsageText: "algia list-show [--kind <kind>] [<name>]",
+				HelpName:  "list-show",
+				ArgsUsage: "[<name>]",
+				Action:    doListShow,
+			},
+			{
+				Name: "list-add",
+				Flags: []cli.Flag{
+					&cli.IntFlag{Name: "kind", Usage: "list kind (e.g. 10002 for relay list, 30000 for follow set)"},
+				},
+				Usage:     "add items to a list",
+				UsageText: "algia list-add [--kind <kind>] [<name>] <item> [item...]",
+				HelpName:  "list-add",
+				ArgsUsage: "[<name>] <item> [item...]",
+				Action:    doListAdd,
+			},
+			{
+				Name: "list-remove",
+				Flags: []cli.Flag{
+					&cli.IntFlag{Name: "kind", Usage: "list kind (e.g. 10002 for relay list, 30000 for follow set)"},
+				},
+				Usage:     "remove items from a list",
+				UsageText: "algia list-remove [--kind <kind>] [<name>] <item> [item...]",
+				HelpName:  "list-remove",
+				ArgsUsage: "[<name>] <item> [item...]",
+				Action:    doListRemove,
+			},
+			{
+				Name: "list-delete",
+				Flags: []cli.Flag{
+					&cli.IntFlag{Name: "kind", Usage: "list kind (e.g. 10002 for relay list, 30000 for follow set)"},
+				},
+				Usage:     "delete a list",
+				UsageText: "algia list-delete [--kind <kind>] [<name>]",
+				HelpName:  "list-delete",
+				ArgsUsage: "[<name>]",
+				Action:    doListDelete,
+			},
+			{
 				Name:    "report",
 				Aliases: []string{"rep"},
 				Flags: []cli.Flag{
