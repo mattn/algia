@@ -60,3 +60,12 @@ upload: $(GOBIN)/ghr
 
 $(GOBIN)/ghr:
 	go install github.com/tcnksm/ghr@latest
+
+client-tag:
+	algia event --kind 31990 \
+		--tag "d=algia" \
+		--tag "k=1" \
+		--tag "k=6" \
+		--tag "k=7" \
+		--tag "k=30023" \
+		--content '{"name":"algia","about":"A cli application for nostr","repository":"https://github.com/mattn/algia"}'
