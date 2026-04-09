@@ -1060,7 +1060,7 @@ func main() {
 					&cli.StringFlag{Name: "sensitive"},
 					&cli.StringSliceFlag{Name: "emoji"},
 					&cli.StringFlag{Name: "geohash"},
-					&cli.StringSliceFlag{Name: "tag", Aliases: []string{"t"}, Usage: "tag (comma-separated: key,value1,value2)"},
+					&cli.StringSliceFlag{Name: "tag", Aliases: []string{"t"}, Usage: "tag (key=value1;value2)"},
 					&cli.StringFlag{Name: "article-name"},
 					&cli.StringFlag{Name: "article-title"},
 					&cli.StringFlag{Name: "article-summary"},

@@ -144,7 +144,11 @@ func callPost(arg *postArg) error {
 	}
 
 	for _, t := range arg.tags {
-		tag := nostr.Tag(strings.Split(t, ","))
+		name, value, found := strings.Cut(t, "=")
+		tag := nostr.Tag{name}
+		if found {
+			tag = append(tag, strings.Split(value, ";")...)
+		}
 		if len(tag) > 0 {
 			if tag[0] == "client" {
 				tags := make(nostr.Tags, 0, len(ev.Tags))
