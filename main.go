@@ -25,7 +25,7 @@ import (
 
 const name = "algia"
 
-const version = "0.0.108"
+const version = "0.0.109"
 
 var revision = "HEAD"
 
