@@ -56,6 +56,7 @@ func doPost(cCtx *cli.Context) error {
 		articleSummary: articleSummary,
 		emoji:          cCtx.StringSlice("emoji"),
 		us:             cCtx.StringSlice("u"),
+		tags:           cCtx.StringSlice("tag"),
 	})
 }
 
@@ -70,6 +71,7 @@ type postArg struct {
 	articleSummary string
 	emoji          []string
 	us             []string
+	tags           []string
 }
 
 func callPost(arg *postArg) error {
@@ -139,6 +141,13 @@ func callPost(arg *postArg) error {
 	}
 	if len(hashtag) > 1 {
 		ev.Tags = ev.Tags.AppendUnique(hashtag)
+	}
+
+	for _, t := range arg.tags {
+		tag := nostr.Tag(strings.Split(t, ","))
+		if len(tag) > 0 {
+			ev.Tags = ev.Tags.AppendUnique(tag)
+		}
 	}
 
 	ev.CreatedAt = nostr.Now()
