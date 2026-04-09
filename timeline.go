@@ -146,7 +146,18 @@ func callPost(arg *postArg) error {
 	for _, t := range arg.tags {
 		tag := nostr.Tag(strings.Split(t, ","))
 		if len(tag) > 0 {
-			ev.Tags = ev.Tags.AppendUnique(tag)
+			if tag[0] == "client" {
+				tags := make(nostr.Tags, 0, len(ev.Tags))
+				for _, existing := range ev.Tags {
+					if len(existing) > 0 && existing[0] == "client" {
+						continue
+					}
+					tags = append(tags, existing)
+				}
+				ev.Tags = append(tags, tag)
+			} else {
+				ev.Tags = ev.Tags.AppendUnique(tag)
+			}
 		}
 	}
 
