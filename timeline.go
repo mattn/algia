@@ -117,14 +117,22 @@ func callPost(arg *postArg) error {
 		}
 	}
 
-	for i, u := range arg.us {
-		ev.Content = fmt.Sprintf("#[%d] ", i) + ev.Content
+	var mentions []string
+	for _, u := range arg.us {
 		if pp := sdk.InputToProfile(context.TODO(), u); pp != nil {
 			u = pp.PublicKey
 		} else {
 			return fmt.Errorf("failed to parse pubkey from '%s'", u)
 		}
+		npub, err := nip19.EncodePublicKey(u)
+		if err != nil {
+			return err
+		}
+		mentions = append(mentions, "nostr:"+npub)
 		ev.Tags = ev.Tags.AppendUnique(nostr.Tag{"p", u})
+	}
+	if len(mentions) > 0 {
+		ev.Content = strings.Join(mentions, " ") + " " + ev.Content
 	}
 
 	if arg.sensitive != "" {
