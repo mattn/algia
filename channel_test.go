@@ -135,7 +135,11 @@ func TestBuildChannelCreateEvent_RejectsEmptyName(t *testing.T) {
 func TestBuildChannelPostEvent_Basic(t *testing.T) {
 	const pub = "abcdef0000000000000000000000000000000000000000000000000000000001"
 	const chID = "1111111111111111111111111111111111111111111111111111111111111111"
-	ev, err := buildChannelPostEvent(pub, "hello world", chID, "", "wss://example.com", 1700000000)
+	ev, err := buildChannelPostEvent(pub, channelPostOpts{
+		Content:   "hello world",
+		ChannelID: chID,
+		RelayHint: "wss://example.com",
+	}, nil, 1700000000)
 	if err != nil {
 		t.Fatalf("err=%v", err)
 	}
@@ -160,7 +164,11 @@ func TestBuildChannelPostEvent_Basic(t *testing.T) {
 func TestBuildChannelPostEvent_WithReply(t *testing.T) {
 	const chID = "1111111111111111111111111111111111111111111111111111111111111111"
 	const rID = "2222222222222222222222222222222222222222222222222222222222222222"
-	ev, err := buildChannelPostEvent("p", "hi", chID, rID, "", 0)
+	ev, err := buildChannelPostEvent("p", channelPostOpts{
+		Content:   "hi",
+		ChannelID: chID,
+		ReplyID:   rID,
+	}, nil, 0)
 	if err != nil {
 		t.Fatalf("err=%v", err)
 	}
@@ -177,7 +185,10 @@ func TestBuildChannelPostEvent_WithReply(t *testing.T) {
 }
 
 func TestBuildChannelPostEvent_ExtractsLinksAndTags(t *testing.T) {
-	ev, err := buildChannelPostEvent("p", "check https://example.com and topic #nostr", "ch", "", "", 0)
+	ev, err := buildChannelPostEvent("p", channelPostOpts{
+		Content:   "check https://example.com and topic #nostr",
+		ChannelID: "ch",
+	}, nil, 0)
 	if err != nil {
 		t.Fatalf("err=%v", err)
 	}
@@ -192,14 +203,121 @@ func TestBuildChannelPostEvent_ExtractsLinksAndTags(t *testing.T) {
 }
 
 func TestBuildChannelPostEvent_RejectsEmptyContent(t *testing.T) {
-	if _, err := buildChannelPostEvent("p", "   \n", "ch", "", "", 0); err == nil {
+	if _, err := buildChannelPostEvent("p", channelPostOpts{Content: "   \n", ChannelID: "ch"}, nil, 0); err == nil {
 		t.Fatal("expected error for empty content")
 	}
 }
 
 func TestBuildChannelPostEvent_RejectsEmptyChannelID(t *testing.T) {
-	if _, err := buildChannelPostEvent("p", "hi", "", "", "", 0); err == nil {
+	if _, err := buildChannelPostEvent("p", channelPostOpts{Content: "hi"}, nil, 0); err == nil {
 		t.Fatal("expected error for empty channel id")
+	}
+}
+
+func TestBuildChannelPostEvent_Mentions(t *testing.T) {
+	pub2 := "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+	ev, err := buildChannelPostEvent("p", channelPostOpts{
+		Content:        "ping",
+		ChannelID:      "ch",
+		MentionPubkeys: []string{pub2},
+	}, nil, 0)
+	if err != nil {
+		t.Fatalf("err=%v", err)
+	}
+	if findTag(ev.Tags, "p") == nil {
+		t.Error("expected p tag")
+	}
+	wantNpub, _ := nip19.EncodePublicKey(pub2)
+	if !strings.HasPrefix(ev.Content, "nostr:"+wantNpub+" ") {
+		t.Errorf("content should be prefixed with nostr:<npub>, got %q", ev.Content)
+	}
+}
+
+func TestBuildChannelPostEvent_SensitiveAndGeohash(t *testing.T) {
+	ev, err := buildChannelPostEvent("p", channelPostOpts{
+		Content:   "hi",
+		ChannelID: "ch",
+		Sensitive: "nsfw",
+		Geohash:   "xn76",
+	}, nil, 0)
+	if err != nil {
+		t.Fatalf("err=%v", err)
+	}
+	if cw := findTag(ev.Tags, "content-warning"); cw == nil || cw[1] != "nsfw" {
+		t.Errorf("content-warning: %v", cw)
+	}
+	if g := findTag(ev.Tags, "g"); g == nil || g[1] != "xn76" {
+		t.Errorf("g tag: %v", g)
+	}
+}
+
+func TestBuildChannelPostEvent_EmojiFlagAndInline(t *testing.T) {
+	ev, err := buildChannelPostEvent("p", channelPostOpts{
+		Content:   "hi :heart: there :wave: now",
+		ChannelID: "ch",
+		Emojis:    []string{"wave=https://e.example/w.png"},
+	}, map[string]string{"heart": "https://e.example/h.png"}, 0)
+	if err != nil {
+		t.Fatalf("err=%v", err)
+	}
+	got := map[string]string{}
+	for _, e := range findAllTags(ev.Tags, "emoji") {
+		if len(e) >= 3 {
+			got[e[1]] = e[2]
+		}
+	}
+	if got["heart"] != "https://e.example/h.png" {
+		t.Errorf("missing inline emoji heart: %v", got)
+	}
+	if got["wave"] != "https://e.example/w.png" {
+		t.Errorf("missing flag emoji wave: %v", got)
+	}
+}
+
+func TestBuildChannelPostEvent_EmojiBadFormat(t *testing.T) {
+	_, err := buildChannelPostEvent("p", channelPostOpts{
+		Content:   "hi",
+		ChannelID: "ch",
+		Emojis:    []string{"no-equals-sign"},
+	}, nil, 0)
+	if err == nil {
+		t.Fatal("expected error for malformed --emoji")
+	}
+}
+
+func TestBuildChannelPostEvent_CustomTags(t *testing.T) {
+	ev, err := buildChannelPostEvent("p", channelPostOpts{
+		Content:   "hi",
+		ChannelID: "ch",
+		Tags:      []string{"foo=bar;baz", "z"},
+	}, nil, 0)
+	if err != nil {
+		t.Fatalf("err=%v", err)
+	}
+	foo := findTag(ev.Tags, "foo")
+	if foo == nil || len(foo) != 3 || foo[1] != "bar" || foo[2] != "baz" {
+		t.Errorf("foo tag: %v", foo)
+	}
+	if findTag(ev.Tags, "z") == nil {
+		t.Errorf("expected single-element tag z")
+	}
+}
+
+func TestBuildChannelPostEvent_CustomClientTagOverrides(t *testing.T) {
+	ev, err := buildChannelPostEvent("p", channelPostOpts{
+		Content:   "hi",
+		ChannelID: "ch",
+		Tags:      []string{"client=foo;extra"},
+	}, nil, 0)
+	if err != nil {
+		t.Fatalf("err=%v", err)
+	}
+	clients := findAllTags(ev.Tags, "client")
+	if len(clients) != 1 {
+		t.Fatalf("expected exactly one client tag, got %d (%v)", len(clients), clients)
+	}
+	if clients[0][1] != "foo" {
+		t.Errorf("client tag value: got=%q want=foo", clients[0][1])
 	}
 }
 

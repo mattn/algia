@@ -55,15 +55,30 @@ func buildChannelCreateEvent(pubkey string, meta channelMetadata, createdAt nost
 	return ev, nil
 }
 
+// channelPostOpts captures everything buildChannelPostEvent needs.
+type channelPostOpts struct {
+	Content        string
+	ChannelID      string
+	ReplyID        string
+	RelayHint      string
+	MentionPubkeys []string // pre-resolved hex pubkeys
+	Sensitive      string
+	Geohash        string
+	Emojis         []string // "name=url" pairs from --emoji
+	Tags           []string // "name=v1;v2" pairs from --tag
+}
+
 // buildChannelPostEvent constructs an unsigned kind 42 event for a message in a channel.
-// channelID must be the hex id of the kind 40 event. If replyID is non-empty it is added as
-// a NIP-10 style "reply" e-tag. relayHint is written into the e-tag(s) as the relay hint (may be "").
-// Links (r) and hashtags (t) found in content are auto-attached.
-func buildChannelPostEvent(pubkey, content, channelID, replyID, relayHint string, createdAt nostr.Timestamp) (*nostr.Event, error) {
-	if strings.TrimSpace(content) == "" {
+// ChannelID must be the hex id of the kind 40 event. If ReplyID is non-empty it is added as
+// a NIP-10 style "reply" e-tag. RelayHint is written into the e-tag(s) as the relay hint (may be "").
+// MentionPubkeys get "p" tags and "nostr:<npub> " mentions prepended to the content (NIP-27).
+// Links (r) and hashtags (t) found in content are auto-attached. cfgEmojis is the configured
+// shortcode→icon map for inline :name: emoji expansion.
+func buildChannelPostEvent(pubkey string, opts channelPostOpts, cfgEmojis map[string]string, createdAt nostr.Timestamp) (*nostr.Event, error) {
+	if strings.TrimSpace(opts.Content) == "" {
 		return nil, errors.New("content is empty")
 	}
-	if channelID == "" {
+	if opts.ChannelID == "" {
 		return nil, errors.New("channel id is empty")
 	}
 	ev := &nostr.Event{
@@ -71,24 +86,80 @@ func buildChannelPostEvent(pubkey, content, channelID, replyID, relayHint string
 		CreatedAt: createdAt,
 		Kind:      nostr.KindChannelMessage,
 		Tags:      nostr.Tags{},
-		Content:   content,
+		Content:   opts.Content,
 	}
 	clientTag(ev)
 
-	ev.Tags = ev.Tags.AppendUnique(nostr.Tag{"e", channelID, relayHint, "root"})
-	if replyID != "" {
-		ev.Tags = ev.Tags.AppendUnique(nostr.Tag{"e", replyID, relayHint, "reply"})
+	ev.Tags = ev.Tags.AppendUnique(nostr.Tag{"e", opts.ChannelID, opts.RelayHint, "root"})
+	if opts.ReplyID != "" {
+		ev.Tags = ev.Tags.AppendUnique(nostr.Tag{"e", opts.ReplyID, opts.RelayHint, "reply"})
 	}
 
-	for _, entry := range extractLinks(content) {
+	var mentions []string
+	for _, p := range opts.MentionPubkeys {
+		npub, err := nip19.EncodePublicKey(p)
+		if err != nil {
+			return nil, err
+		}
+		mentions = append(mentions, "nostr:"+npub)
+		ev.Tags = ev.Tags.AppendUnique(nostr.Tag{"p", p})
+	}
+	if len(mentions) > 0 {
+		ev.Content = strings.Join(mentions, " ") + " " + ev.Content
+	}
+
+	for _, entry := range extractLinks(ev.Content) {
 		ev.Tags = ev.Tags.AppendUnique(nostr.Tag{"r", entry.text})
 	}
+	for _, u := range opts.Emojis {
+		tok := strings.SplitN(u, "=", 2)
+		if len(tok) != 2 {
+			return nil, usageError
+		}
+		ev.Tags = ev.Tags.AppendUnique(nostr.Tag{"emoji", tok[0], tok[1]})
+	}
+	for _, entry := range extractEmojis(ev.Content) {
+		name := strings.Trim(entry.text, ":")
+		if icon, ok := cfgEmojis[name]; ok {
+			ev.Tags = ev.Tags.AppendUnique(nostr.Tag{"emoji", name, icon})
+		}
+	}
+	if opts.Sensitive != "" {
+		ev.Tags = ev.Tags.AppendUnique(nostr.Tag{"content-warning", opts.Sensitive})
+	}
+	if opts.Geohash != "" {
+		ev.Tags = ev.Tags.AppendUnique(nostr.Tag{"g", opts.Geohash})
+	}
+
 	hashtag := nostr.Tag{"t"}
-	for _, m := range extractTags(content) {
+	for _, m := range extractTags(ev.Content) {
 		hashtag = append(hashtag, m.text)
 	}
 	if len(hashtag) > 1 {
 		ev.Tags = ev.Tags.AppendUnique(hashtag)
+	}
+
+	for _, t := range opts.Tags {
+		name, value, found := strings.Cut(t, "=")
+		tag := nostr.Tag{name}
+		if found {
+			tag = append(tag, strings.Split(value, ";")...)
+		}
+		if len(tag) == 0 {
+			continue
+		}
+		if tag[0] == "client" {
+			tags := make(nostr.Tags, 0, len(ev.Tags))
+			for _, existing := range ev.Tags {
+				if len(existing) > 0 && existing[0] == "client" {
+					continue
+				}
+				tags = append(tags, existing)
+			}
+			ev.Tags = append(tags, tag)
+		} else {
+			ev.Tags = ev.Tags.AppendUnique(tag)
+		}
 	}
 	return ev, nil
 }
@@ -326,7 +397,22 @@ func doChannelPost(cCtx *cli.Context) error {
 		content = strings.Join(cCtx.Args().Slice(), "\n")
 	}
 
-	ev, err := buildChannelPostEvent(pub, content, channelID, replyID, firstWriteRelay(cfg), nostr.Now())
+	mentionPubkeys, err := resolveMentions(context.TODO(), cCtx.StringSlice("u"))
+	if err != nil {
+		return err
+	}
+
+	ev, err := buildChannelPostEvent(pub, channelPostOpts{
+		Content:        content,
+		ChannelID:      channelID,
+		ReplyID:        replyID,
+		RelayHint:      firstWriteRelay(cfg),
+		MentionPubkeys: mentionPubkeys,
+		Sensitive:      cCtx.String("sensitive"),
+		Geohash:        cCtx.String("geohash"),
+		Emojis:         cCtx.StringSlice("emoji"),
+		Tags:           cCtx.StringSlice("tag"),
+	}, cfg.Emojis, nostr.Now())
 	if err != nil {
 		return err
 	}
