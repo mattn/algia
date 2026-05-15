@@ -49,7 +49,7 @@ ifneq ($(shell git rev-parse --abbrev-ref HEAD),main)
 	$(error current branch is not main)
 endif
 	@gobump up -w .
-	git commit -am "bump up version to $(VERSION)"
+	git commit -am "Bump up version to $(VERSION)"
 	git tag "v$(VERSION)"
 	git push origin main
 	git push origin "refs/tags/v$(VERSION)"
