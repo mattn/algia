@@ -1363,6 +1363,56 @@ func main() {
 				Action:    doListDelete,
 			},
 			{
+				Name: "channel-create",
+				Flags: []cli.Flag{
+					&cli.StringFlag{Name: "name", Required: true, Usage: "channel name"},
+					&cli.StringFlag{Name: "about", Usage: "channel description"},
+					&cli.StringFlag{Name: "picture", Usage: "channel picture URL"},
+				},
+				Usage:     "create a new channel (NIP-28 kind 40)",
+				UsageText: "algia channel-create --name [name] [--about ...] [--picture ...]",
+				HelpName:  "channel-create",
+				Action:    doChannelCreate,
+			},
+			{
+				Name: "channel-list",
+				Flags: []cli.Flag{
+					&cli.BoolFlag{Name: "json", Usage: "output JSON"},
+					&cli.BoolFlag{Name: "all", Usage: "list channels from all authors, not just mine"},
+					&cli.IntFlag{Name: "n", Value: 30, Usage: "number of items"},
+				},
+				Usage:     "list channels (NIP-28 kind 40)",
+				UsageText: "algia channel-list",
+				HelpName:  "channel-list",
+				Action:    doChannelList,
+			},
+			{
+				Name: "channel-timeline",
+				Flags: []cli.Flag{
+					&cli.StringFlag{Name: "id", Required: true, Usage: "channel id (note/nevent/hex of the kind 40 event)"},
+					&cli.IntFlag{Name: "n", Value: 30, Usage: "number of items"},
+					&cli.BoolFlag{Name: "json", Usage: "output JSON"},
+					&cli.BoolFlag{Name: "extra", Usage: "extra JSON"},
+				},
+				Usage:     "show channel timeline (NIP-28 kind 42)",
+				UsageText: "algia channel-timeline --id [channel id]",
+				HelpName:  "channel-timeline",
+				Action:    doChannelTimeline,
+			},
+			{
+				Name: "channel-post",
+				Flags: []cli.Flag{
+					&cli.StringFlag{Name: "id", Required: true, Usage: "channel id (note/nevent/hex of the kind 40 event)"},
+					&cli.StringFlag{Name: "reply", Usage: "reply target message id (note/nevent/hex of a kind 42 event)"},
+					&cli.BoolFlag{Name: "stdin"},
+				},
+				Usage:     "post a message to a channel (NIP-28 kind 42)",
+				UsageText: "algia channel-post --id [channel id] [--reply <message id>] [message]",
+				HelpName:  "channel-post",
+				ArgsUsage: "[message]",
+				Action:    doChannelPost,
+			},
+			{
 				Name:    "report",
 				Aliases: []string{"rep"},
 				Flags: []cli.Flag{
