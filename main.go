@@ -1400,6 +1400,17 @@ func main() {
 				Action:    doChannelTimeline,
 			},
 			{
+				Name: "channel-stream",
+				Flags: []cli.Flag{
+					&cli.StringFlag{Name: "id", Required: true, Usage: "channel id (note/nevent/hex of the kind 40 event)"},
+					&cli.BoolFlag{Name: "json", Usage: "output JSON"},
+				},
+				Usage:     "stream new channel messages (NIP-28 kind 42)",
+				UsageText: "algia channel-stream --id [channel id]",
+				HelpName:  "channel-stream",
+				Action:    doChannelStream,
+			},
+			{
 				Name: "channel-post",
 				Flags: []cli.Flag{
 					&cli.StringFlag{Name: "id", Required: true, Usage: "channel id (note/nevent/hex of the kind 40 event)"},

@@ -245,6 +245,48 @@ func doChannelTimeline(cCtx *cli.Context) error {
 	return nil
 }
 
+func doChannelStream(cCtx *cli.Context) error {
+	id := cCtx.String("id")
+	j := cCtx.Bool("json")
+
+	channelID, err := resolveChannelID(id)
+	if err != nil {
+		return err
+	}
+
+	cfg := cCtx.App.Metadata["config"].(*Config)
+
+	relays := []string{}
+	for rurl, r := range cfg.Relays {
+		if r.Read {
+			relays = append(relays, rurl)
+		}
+	}
+	if len(relays) == 0 {
+		return errors.New("no read relays available")
+	}
+
+	since := nostr.Now()
+	filter := nostr.Filter{
+		Kinds: []int{nostr.KindChannelMessage},
+		Tags:  nostr.TagMap{"e": []string{channelID}},
+		Since: &since,
+	}
+
+	sub := cfg.pool.SubMany(context.Background(), relays, nostr.Filters{filter})
+	for ie := range sub {
+		if ie.Event == nil {
+			continue
+		}
+		if j {
+			json.NewEncoder(os.Stdout).Encode(ie.Event)
+		} else {
+			cfg.PrintEvent(ie.Event, false, false)
+		}
+	}
+	return nil
+}
+
 func doChannelPost(cCtx *cli.Context) error {
 	id := cCtx.String("id")
 	reply := cCtx.String("reply")
