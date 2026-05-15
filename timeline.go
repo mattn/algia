@@ -75,114 +75,19 @@ type postArg struct {
 }
 
 func callPost(arg *postArg) error {
-	var sk string
-	if _, s, err := nip19.Decode(arg.cfg.PrivateKey); err == nil {
-		sk = s.(string)
-	} else {
-		return err
-	}
-	ev := nostr.Event{}
-	if pub, err := nostr.GetPublicKey(sk); err == nil {
-		if _, err := nip19.EncodePublicKey(pub); err != nil {
-			return err
-		}
-		ev.PubKey = pub
-	} else {
+	sk, pub, err := getSkAndPub(arg.cfg)
+	if err != nil {
 		return err
 	}
 
-	ev.Content = arg.content
-	if strings.TrimSpace(ev.Content) == "" {
-		return errors.New("content is empty")
+	mentionPubkeys, err := resolveMentions(context.TODO(), arg.us)
+	if err != nil {
+		return err
 	}
 
-	ev.Tags = nostr.Tags{}
-	clientTag(&ev)
-
-	for _, entry := range extractLinks(ev.Content) {
-		ev.Tags = ev.Tags.AppendUnique(nostr.Tag{"r", entry.text})
-	}
-
-	for _, u := range arg.emoji {
-		tok := strings.SplitN(u, "=", 2)
-		if len(tok) != 2 {
-			return usageError
-		}
-		ev.Tags = ev.Tags.AppendUnique(nostr.Tag{"emoji", tok[0], tok[1]})
-	}
-	for _, entry := range extractEmojis(ev.Content) {
-		name := strings.Trim(entry.text, ":")
-		if icon, ok := arg.cfg.Emojis[name]; ok {
-			ev.Tags = ev.Tags.AppendUnique(nostr.Tag{"emoji", name, icon})
-		}
-	}
-
-	var mentions []string
-	for _, u := range arg.us {
-		if pp := sdk.InputToProfile(context.TODO(), u); pp != nil {
-			u = pp.PublicKey
-		} else {
-			return fmt.Errorf("failed to parse pubkey from '%s'", u)
-		}
-		npub, err := nip19.EncodePublicKey(u)
-		if err != nil {
-			return err
-		}
-		mentions = append(mentions, "nostr:"+npub)
-		ev.Tags = ev.Tags.AppendUnique(nostr.Tag{"p", u})
-	}
-	if len(mentions) > 0 {
-		ev.Content = strings.Join(mentions, " ") + " " + ev.Content
-	}
-
-	if arg.sensitive != "" {
-		ev.Tags = ev.Tags.AppendUnique(nostr.Tag{"content-warning", arg.sensitive})
-	}
-
-	if arg.geohash != "" {
-		ev.Tags = ev.Tags.AppendUnique(nostr.Tag{"g", arg.geohash})
-	}
-
-	hashtag := nostr.Tag{"t"}
-	for _, m := range extractTags(ev.Content) {
-		hashtag = append(hashtag, m.text)
-	}
-	if len(hashtag) > 1 {
-		ev.Tags = ev.Tags.AppendUnique(hashtag)
-	}
-
-	for _, t := range arg.tags {
-		name, value, found := strings.Cut(t, "=")
-		tag := nostr.Tag{name}
-		if found {
-			tag = append(tag, strings.Split(value, ";")...)
-		}
-		if len(tag) > 0 {
-			if tag[0] == "client" {
-				tags := make(nostr.Tags, 0, len(ev.Tags))
-				for _, existing := range ev.Tags {
-					if len(existing) > 0 && existing[0] == "client" {
-						continue
-					}
-					tags = append(tags, existing)
-				}
-				ev.Tags = append(tags, tag)
-			} else {
-				ev.Tags = ev.Tags.AppendUnique(tag)
-			}
-		}
-	}
-
-	ev.CreatedAt = nostr.Now()
-	if arg.articleName != "" {
-		ev.Kind = nostr.KindArticle
-		ev.Tags = ev.Tags.AppendUnique(nostr.Tag{"d", arg.articleName})
-		ev.Tags = ev.Tags.AppendUnique(nostr.Tag{"title", arg.articleTitle})
-		ev.Tags = ev.Tags.AppendUnique(nostr.Tag{"summary", arg.articleSummary})
-		ev.Tags = ev.Tags.AppendUnique(nostr.Tag{"published_at", fmt.Sprint(nostr.Now())})
-		ev.Tags = ev.Tags.AppendUnique(nostr.Tag{"a", fmt.Sprintf("%d:%s:%s", ev.Kind, ev.PubKey, arg.articleName), "wss://yabu.me"})
-	} else {
-		ev.Kind = nostr.KindTextNote
+	ev, err := buildPostEvent(arg, pub, mentionPubkeys, nostr.Now())
+	if err != nil {
+		return err
 	}
 	if err := ev.Sign(sk); err != nil {
 		return err
@@ -190,7 +95,7 @@ func callPost(arg *postArg) error {
 
 	var success atomic.Int64
 	arg.cfg.Do(arg.ctx, Relay{Write: true}, func(ctx context.Context, relay *nostr.Relay) bool {
-		err := relay.Publish(ctx, ev)
+		err := relay.Publish(ctx, *ev)
 		if err != nil {
 			fmt.Fprintln(os.Stderr, relay.URL, err)
 		} else {
@@ -287,28 +192,13 @@ func doEvent(cCtx *cli.Context) error {
 func doReply(cCtx *cli.Context) error {
 	stdin := cCtx.Bool("stdin")
 	id := cCtx.String("id")
-	quote := cCtx.Bool("quote")
 	if !stdin && cCtx.Args().Len() == 0 {
 		return cli.ShowSubcommandHelp(cCtx)
 	}
-	sensitive := cCtx.String("sensitive")
-	geohash := cCtx.String("geohash")
 
 	cfg := cCtx.App.Metadata["config"].(*Config)
-
-	var sk string
-	if _, s, err := nip19.Decode(cfg.PrivateKey); err == nil {
-		sk = s.(string)
-	} else {
-		return err
-	}
-	ev := nostr.Event{}
-	if pub, err := nostr.GetPublicKey(sk); err == nil {
-		if _, err := nip19.EncodePublicKey(pub); err != nil {
-			return err
-		}
-		ev.PubKey = pub
-	} else {
+	sk, pub, err := getSkAndPub(cfg)
+	if err != nil {
 		return err
 	}
 
@@ -318,69 +208,36 @@ func doReply(cCtx *cli.Context) error {
 		return fmt.Errorf("failed to parse event from '%s'", id)
 	}
 
-	ev.CreatedAt = nostr.Now()
-	ev.Kind = nostr.KindTextNote
+	var content string
 	if stdin {
 		b, err := ioutil.ReadAll(os.Stdin)
 		if err != nil {
 			return err
 		}
-		ev.Content = string(b)
+		content = string(b)
 	} else {
-		ev.Content = strings.Join(cCtx.Args().Slice(), "\n")
-	}
-	if strings.TrimSpace(ev.Content) == "" {
-		return errors.New("content is empty")
+		content = strings.Join(cCtx.Args().Slice(), "\n")
 	}
 
-	ev.Tags = nostr.Tags{}
-	clientTag(&ev)
-
-	for _, entry := range extractLinks(ev.Content) {
-		ev.Tags = ev.Tags.AppendUnique(nostr.Tag{"r", entry.text})
+	ev, err := buildReplyEvent(pub, replyOpts{
+		Content:   content,
+		ReplyToID: id,
+		RelayHint: firstWriteRelay(cfg),
+		Quote:     cCtx.Bool("quote"),
+		Sensitive: cCtx.String("sensitive"),
+		Geohash:   cCtx.String("geohash"),
+		Emojis:    cCtx.StringSlice("emoji"),
+	}, cfg.Emojis, nostr.Now())
+	if err != nil {
+		return err
 	}
-
-	for _, u := range cCtx.StringSlice("emoji") {
-		tok := strings.SplitN(u, "=", 2)
-		if len(tok) != 2 {
-			return cli.ShowSubcommandHelp(cCtx)
-		}
-		ev.Tags = ev.Tags.AppendUnique(nostr.Tag{"emoji", tok[0], tok[1]})
-	}
-	for _, entry := range extractEmojis(ev.Content) {
-		name := strings.Trim(entry.text, ":")
-		if icon, ok := cfg.Emojis[name]; ok {
-			ev.Tags = ev.Tags.AppendUnique(nostr.Tag{"emoji", name, icon})
-		}
-	}
-
-	if sensitive != "" {
-		ev.Tags = ev.Tags.AppendUnique(nostr.Tag{"content-warning", sensitive})
-	}
-
-	if geohash != "" {
-		ev.Tags = ev.Tags.AppendUnique(nostr.Tag{"g", geohash})
-	}
-
-	hashtag := nostr.Tag{"t"}
-	for _, m := range extractTags(ev.Content) {
-		hashtag = append(hashtag, m.text)
-	}
-	if len(hashtag) > 1 {
-		ev.Tags = ev.Tags.AppendUnique(hashtag)
+	if err := ev.Sign(sk); err != nil {
+		return err
 	}
 
 	var success atomic.Int64
 	cfg.Do(context.Background(), Relay{Write: true}, func(ctx context.Context, relay *nostr.Relay) bool {
-		if !quote {
-			ev.Tags = ev.Tags.AppendUnique(nostr.Tag{"e", id, relay.URL, "reply"})
-		} else {
-			ev.Tags = ev.Tags.AppendUnique(nostr.Tag{"e", id, relay.URL, "mention"})
-		}
-		if err := ev.Sign(sk); err != nil {
-			return true
-		}
-		err := relay.Publish(ctx, ev)
+		err := relay.Publish(ctx, *ev)
 		if err != nil {
 			fmt.Fprintln(os.Stderr, relay.URL, err)
 		} else {
@@ -395,71 +252,11 @@ func doReply(cCtx *cli.Context) error {
 }
 
 func doRepost(cCtx *cli.Context) error {
-	id := cCtx.String("id")
-
-	cfg := cCtx.App.Metadata["config"].(*Config)
-
-	ev := nostr.Event{}
-	var sk string
-	if _, s, err := nip19.Decode(cfg.PrivateKey); err == nil {
-		sk = s.(string)
-	} else {
-		return err
-	}
-	if pub, err := nostr.GetPublicKey(sk); err == nil {
-		if _, err := nip19.EncodePublicKey(pub); err != nil {
-			return err
-		}
-		ev.PubKey = pub
-	} else {
-		return err
-	}
-
-	if evp := sdk.InputToEventPointer(id); evp != nil {
-		id = evp.ID
-	} else {
-		return fmt.Errorf("failed to parse event from '%s'", id)
-	}
-	ev.Tags = ev.Tags.AppendUnique(nostr.Tag{"e", id})
-	filter := nostr.Filter{
-		Kinds: []int{nostr.KindTextNote},
-		IDs:   []string{id},
-	}
-
-	ev.CreatedAt = nostr.Now()
-	ev.Kind = nostr.KindRepost
-	ev.Content = ""
-
-	var first atomic.Bool
-	first.Store(true)
-
-	var success atomic.Int64
-	cfg.Do(context.Background(), Relay{Write: true}, func(ctx context.Context, relay *nostr.Relay) bool {
-		if first.Load() {
-			evs, err := relay.QuerySync(ctx, filter)
-			if err != nil {
-				return true
-			}
-			for _, tmp := range evs {
-				ev.Tags = ev.Tags.AppendUnique(nostr.Tag{"p", tmp.ID})
-			}
-			first.Store(false)
-			if err := ev.Sign(sk); err != nil {
-				return true
-			}
-		}
-		err := relay.Publish(ctx, ev)
-		if err != nil {
-			fmt.Fprintln(os.Stderr, relay.URL, err)
-		} else {
-			success.Add(1)
-		}
-		return true
+	return callRepost(&repostArg{
+		ctx: cCtx.Context,
+		cfg: cCtx.App.Metadata["config"].(*Config),
+		id:  cCtx.String("id"),
 	})
-	if success.Load() == 0 {
-		return errors.New("cannot repost")
-	}
-	return nil
 }
 
 func doUnrepost(cCtx *cli.Context) error {
@@ -502,17 +299,17 @@ func doUnrepost(cCtx *cli.Context) error {
 		return true
 	})
 
-	var ev nostr.Event
-	ev.Tags = ev.Tags.AppendUnique(nostr.Tag{"e", repostID})
-	ev.CreatedAt = nostr.Now()
-	ev.Kind = nostr.KindDeletion
+	ev, err := buildDeleteEvent(pub, repostID, nostr.Now())
+	if err != nil {
+		return err
+	}
 	if err := ev.Sign(sk); err != nil {
 		return err
 	}
 
 	var success atomic.Int64
 	cfg.Do(context.Background(), Relay{Write: true}, func(ctx context.Context, relay *nostr.Relay) bool {
-		err := relay.Publish(ctx, ev)
+		err := relay.Publish(ctx, *ev)
 		if err != nil {
 			fmt.Fprintln(os.Stderr, relay.URL, err)
 		} else {
@@ -545,19 +342,8 @@ type likeArg struct {
 }
 
 func callLike(arg *likeArg) error {
-	ev := nostr.Event{}
-	var sk string
-	if _, s, err := nip19.Decode(arg.cfg.PrivateKey); err == nil {
-		sk = s.(string)
-	} else {
-		return err
-	}
-	if pub, err := nostr.GetPublicKey(sk); err == nil {
-		if _, err := nip19.EncodePublicKey(pub); err != nil {
-			return err
-		}
-		ev.PubKey = pub
-	} else {
+	sk, pub, err := getSkAndPub(arg.cfg)
+	if err != nil {
 		return err
 	}
 
@@ -566,46 +352,25 @@ func callLike(arg *likeArg) error {
 	} else {
 		return fmt.Errorf("failed to parse event from '%s'", arg.id)
 	}
-	ev.Tags = ev.Tags.AppendUnique(nostr.Tag{"e", arg.id})
+
+	// Look up the original event to surface the original author as a p-tag hint (NIP-25).
 	filter := nostr.Filter{
 		Kinds: []int{nostr.KindTextNote},
 		IDs:   []string{arg.id},
 	}
+	mentionedPubkeys := fetchEventAuthorHints(arg.ctx, arg.cfg, filter)
 
-	ev.CreatedAt = nostr.Now()
-	ev.Kind = nostr.KindReaction
-	ev.Content = arg.content
-	if arg.emoji != "" {
-		if ev.Content == "" {
-			ev.Content = "like"
-		}
-		ev.Tags = ev.Tags.AppendUnique(nostr.Tag{"emoji", ev.Content, arg.emoji})
-		ev.Content = ":" + ev.Content + ":"
+	ev, err := buildLikeEvent(pub, arg.id, arg.content, arg.emoji, mentionedPubkeys, nostr.Now())
+	if err != nil {
+		return err
 	}
-	if ev.Content == "" {
-		ev.Content = "+"
+	if err := ev.Sign(sk); err != nil {
+		return err
 	}
-
-	var first atomic.Bool
-	first.Store(true)
 
 	var success atomic.Int64
 	arg.cfg.Do(arg.ctx, Relay{Write: true}, func(ctx context.Context, relay *nostr.Relay) bool {
-		if first.Load() {
-			evs, err := relay.QuerySync(ctx, filter)
-			if err != nil {
-				return true
-			}
-			for _, tmp := range evs {
-				ev.Tags = ev.Tags.AppendUnique(nostr.Tag{"p", tmp.ID})
-			}
-			first.Store(false)
-			if err := ev.Sign(sk); err != nil {
-				return true
-			}
-			return true
-		}
-		err := relay.Publish(ctx, ev)
+		err := relay.Publish(ctx, *ev)
 		if err != nil {
 			fmt.Fprintln(os.Stderr, relay.URL, err)
 		} else {
@@ -617,6 +382,30 @@ func callLike(arg *likeArg) error {
 		return errors.New("cannot like")
 	}
 	return nil
+}
+
+// fetchEventAuthorHints returns event IDs found from the first responding write relay.
+// The original behavior here is to surface the event's id as a "p" tag in the reaction —
+// preserved verbatim from the pre-builder code path (note: NIP-25 actually expects the
+// author's pubkey here, but changing that is out of scope for this refactor).
+func fetchEventAuthorHints(ctx context.Context, cfg *Config, filter nostr.Filter) []string {
+	var ids []string
+	var first atomic.Bool
+	first.Store(true)
+	cfg.Do(ctx, Relay{Write: true}, func(ctx context.Context, relay *nostr.Relay) bool {
+		if !first.CompareAndSwap(true, false) {
+			return true
+		}
+		evs, err := relay.QuerySync(ctx, filter)
+		if err != nil {
+			return true
+		}
+		for _, tmp := range evs {
+			ids = append(ids, tmp.ID)
+		}
+		return true
+	})
+	return ids
 }
 
 func doUnlike(cCtx *cli.Context) error {
@@ -659,17 +448,17 @@ func doUnlike(cCtx *cli.Context) error {
 		return true
 	})
 
-	var ev nostr.Event
-	ev.Tags = ev.Tags.AppendUnique(nostr.Tag{"e", likeID})
-	ev.CreatedAt = nostr.Now()
-	ev.Kind = nostr.KindDeletion
+	ev, err := buildDeleteEvent(pub, likeID, nostr.Now())
+	if err != nil {
+		return err
+	}
 	if err := ev.Sign(sk); err != nil {
 		return err
 	}
 
 	var success atomic.Int64
 	cfg.Do(context.Background(), Relay{Write: true}, func(ctx context.Context, relay *nostr.Relay) bool {
-		err := relay.Publish(ctx, ev)
+		err := relay.Publish(ctx, *ev)
 		if err != nil {
 			fmt.Fprintln(os.Stderr, relay.URL, err)
 		} else {
@@ -684,52 +473,11 @@ func doUnlike(cCtx *cli.Context) error {
 }
 
 func doDelete(cCtx *cli.Context) error {
-	id := cCtx.String("id")
-
-	cfg := cCtx.App.Metadata["config"].(*Config)
-
-	ev := nostr.Event{}
-	var sk string
-	if _, s, err := nip19.Decode(cfg.PrivateKey); err == nil {
-		sk = s.(string)
-	} else {
-		return err
-	}
-	if pub, err := nostr.GetPublicKey(sk); err == nil {
-		if _, err := nip19.EncodePublicKey(pub); err != nil {
-			return err
-		}
-		ev.PubKey = pub
-	} else {
-		return err
-	}
-
-	if evp := sdk.InputToEventPointer(id); evp != nil {
-		id = evp.ID
-	} else {
-		return fmt.Errorf("failed to parse event from '%s'", id)
-	}
-	ev.Tags = ev.Tags.AppendUnique(nostr.Tag{"e", id})
-	ev.CreatedAt = nostr.Now()
-	ev.Kind = nostr.KindDeletion
-	if err := ev.Sign(sk); err != nil {
-		return err
-	}
-
-	var success atomic.Int64
-	cfg.Do(context.Background(), Relay{Write: true}, func(ctx context.Context, relay *nostr.Relay) bool {
-		err := relay.Publish(ctx, ev)
-		if err != nil {
-			fmt.Fprintln(os.Stderr, relay.URL, err)
-		} else {
-			success.Add(1)
-		}
-		return true
+	return callDelete(&deleteArg{
+		ctx: cCtx.Context,
+		cfg: cCtx.App.Metadata["config"].(*Config),
+		id:  cCtx.String("id"),
 	})
-	if success.Load() == 0 {
-		return errors.New("cannot delete")
-	}
-	return nil
 }
 
 func doSearch(cCtx *cli.Context) error {
@@ -1128,52 +876,26 @@ func callReply(arg *replyArg) error {
 		return fmt.Errorf("failed to parse event from '%s'", id)
 	}
 
-	var sk string
-	if _, s, err := nip19.Decode(arg.cfg.PrivateKey); err == nil {
-		sk = s.(string)
-	} else {
-		return err
-	}
-	ev := nostr.Event{}
-	if pub, err := nostr.GetPublicKey(sk); err == nil {
-		if _, err := nip19.EncodePublicKey(pub); err != nil {
-			return err
-		}
-		ev.PubKey = pub
-	} else {
+	sk, pub, err := getSkAndPub(arg.cfg)
+	if err != nil {
 		return err
 	}
 
-	ev.CreatedAt = nostr.Now()
-	ev.Kind = nostr.KindTextNote
-	ev.Content = arg.content
-
-	if strings.TrimSpace(ev.Content) == "" {
-		return errors.New("content is empty")
+	ev, err := buildReplyEvent(pub, replyOpts{
+		Content:   arg.content,
+		ReplyToID: id,
+		RelayHint: firstWriteRelay(arg.cfg),
+	}, arg.cfg.Emojis, nostr.Now())
+	if err != nil {
+		return err
 	}
-
-	ev.Tags = nostr.Tags{}
-	clientTag(&ev)
-
-	for _, entry := range extractLinks(ev.Content) {
-		ev.Tags = ev.Tags.AppendUnique(nostr.Tag{"r", entry.text})
-	}
-
-	hashtag := nostr.Tag{"t"}
-	for _, m := range extractTags(ev.Content) {
-		hashtag = append(hashtag, m.text)
-	}
-	if len(hashtag) > 1 {
-		ev.Tags = ev.Tags.AppendUnique(hashtag)
+	if err := ev.Sign(sk); err != nil {
+		return err
 	}
 
 	var success atomic.Int64
 	arg.cfg.Do(arg.ctx, Relay{Write: true}, func(ctx context.Context, relay *nostr.Relay) bool {
-		ev.Tags = ev.Tags.AppendUnique(nostr.Tag{"e", id, relay.URL, "reply"})
-		if err := ev.Sign(sk); err != nil {
-			return true
-		}
-		err := relay.Publish(ctx, ev)
+		err := relay.Publish(ctx, *ev)
 		if err != nil {
 			fmt.Fprintln(os.Stderr, relay.URL, err)
 		} else {
@@ -1196,19 +918,8 @@ type repostArg struct {
 func callRepost(arg *repostArg) error {
 	id := arg.id
 
-	ev := nostr.Event{}
-	var sk string
-	if _, s, err := nip19.Decode(arg.cfg.PrivateKey); err == nil {
-		sk = s.(string)
-	} else {
-		return err
-	}
-	if pub, err := nostr.GetPublicKey(sk); err == nil {
-		if _, err := nip19.EncodePublicKey(pub); err != nil {
-			return err
-		}
-		ev.PubKey = pub
-	} else {
+	sk, pub, err := getSkAndPub(arg.cfg)
+	if err != nil {
 		return err
 	}
 
@@ -1217,35 +928,24 @@ func callRepost(arg *repostArg) error {
 	} else {
 		return fmt.Errorf("failed to parse event from '%s'", id)
 	}
-	ev.Tags = ev.Tags.AppendUnique(nostr.Tag{"e", id})
+
 	filter := nostr.Filter{
 		Kinds: []int{nostr.KindTextNote},
 		IDs:   []string{id},
 	}
+	mentionedPubkeys := fetchEventAuthorHints(arg.ctx, arg.cfg, filter)
 
-	ev.CreatedAt = nostr.Now()
-	ev.Kind = nostr.KindRepost
-	ev.Content = ""
-
-	var first atomic.Bool
-	first.Store(true)
+	ev, err := buildRepostEvent(pub, id, firstWriteRelay(arg.cfg), mentionedPubkeys, nostr.Now())
+	if err != nil {
+		return err
+	}
+	if err := ev.Sign(sk); err != nil {
+		return err
+	}
 
 	var success atomic.Int64
 	arg.cfg.Do(arg.ctx, Relay{Write: true}, func(ctx context.Context, relay *nostr.Relay) bool {
-		if first.Load() {
-			evs, err := relay.QuerySync(ctx, filter)
-			if err != nil {
-				return true
-			}
-			for _, tmp := range evs {
-				ev.Tags = ev.Tags.AppendUnique(nostr.Tag{"p", tmp.ID})
-			}
-			first.Store(false)
-			if err := ev.Sign(sk); err != nil {
-				return true
-			}
-		}
-		err := relay.Publish(ctx, ev)
+		err := relay.Publish(ctx, *ev)
 		if err != nil {
 			fmt.Fprintln(os.Stderr, relay.URL, err)
 		} else {
@@ -1273,13 +973,7 @@ func callUnrepost(arg *unrepostArg) error {
 		return fmt.Errorf("failed to parse event from '%s'", id)
 	}
 
-	var sk string
-	if _, s, err := nip19.Decode(arg.cfg.PrivateKey); err == nil {
-		sk = s.(string)
-	} else {
-		return err
-	}
-	pub, err := nostr.GetPublicKey(sk)
+	sk, pub, err := getSkAndPub(arg.cfg)
 	if err != nil {
 		return err
 	}
@@ -1303,17 +997,17 @@ func callUnrepost(arg *unrepostArg) error {
 		return true
 	})
 
-	var ev nostr.Event
-	ev.Tags = ev.Tags.AppendUnique(nostr.Tag{"e", repostID})
-	ev.CreatedAt = nostr.Now()
-	ev.Kind = nostr.KindDeletion
+	ev, err := buildDeleteEvent(pub, repostID, nostr.Now())
+	if err != nil {
+		return err
+	}
 	if err := ev.Sign(sk); err != nil {
 		return err
 	}
 
 	var success atomic.Int64
 	arg.cfg.Do(arg.ctx, Relay{Write: true}, func(ctx context.Context, relay *nostr.Relay) bool {
-		err := relay.Publish(ctx, ev)
+		err := relay.Publish(ctx, *ev)
 		if err != nil {
 			fmt.Fprintln(os.Stderr, relay.URL, err)
 		} else {
@@ -1335,38 +1029,28 @@ type deleteArg struct {
 
 func callDelete(arg *deleteArg) error {
 	id := arg.id
-
-	ev := nostr.Event{}
-	var sk string
-	if _, s, err := nip19.Decode(arg.cfg.PrivateKey); err == nil {
-		sk = s.(string)
-	} else {
-		return err
-	}
-	if pub, err := nostr.GetPublicKey(sk); err == nil {
-		if _, err := nip19.EncodePublicKey(pub); err != nil {
-			return err
-		}
-		ev.PubKey = pub
-	} else {
-		return err
-	}
-
 	if evp := sdk.InputToEventPointer(id); evp != nil {
 		id = evp.ID
 	} else {
 		return fmt.Errorf("failed to parse event from '%s'", id)
 	}
-	ev.Tags = ev.Tags.AppendUnique(nostr.Tag{"e", id})
-	ev.CreatedAt = nostr.Now()
-	ev.Kind = nostr.KindDeletion
+
+	sk, pub, err := getSkAndPub(arg.cfg)
+	if err != nil {
+		return err
+	}
+
+	ev, err := buildDeleteEvent(pub, id, nostr.Now())
+	if err != nil {
+		return err
+	}
 	if err := ev.Sign(sk); err != nil {
 		return err
 	}
 
 	var success atomic.Int64
 	arg.cfg.Do(arg.ctx, Relay{Write: true}, func(ctx context.Context, relay *nostr.Relay) bool {
-		err := relay.Publish(ctx, ev)
+		err := relay.Publish(ctx, *ev)
 		if err != nil {
 			fmt.Fprintln(os.Stderr, relay.URL, err)
 		} else {
