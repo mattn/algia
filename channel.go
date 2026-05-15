@@ -35,48 +35,107 @@ func resolveChannelID(id string) (string, error) {
 	return "", fmt.Errorf("failed to parse channel id from '%s'", id)
 }
 
-func doChannelCreate(cCtx *cli.Context) error {
-	name := cCtx.String("name")
-	about := cCtx.String("about")
-	picture := cCtx.String("picture")
-	if strings.TrimSpace(name) == "" {
-		return cli.ShowSubcommandHelp(cCtx)
+// buildChannelCreateEvent constructs an unsigned kind 40 event for the given metadata.
+func buildChannelCreateEvent(pubkey string, meta channelMetadata, createdAt nostr.Timestamp) (*nostr.Event, error) {
+	if strings.TrimSpace(meta.Name) == "" {
+		return nil, errors.New("channel name is empty")
 	}
-
-	cfg := cCtx.App.Metadata["config"].(*Config)
-
-	var sk string
-	if _, s, err := nip19.Decode(cfg.PrivateKey); err == nil {
-		sk = s.(string)
-	} else {
-		return err
-	}
-	pub, err := nostr.GetPublicKey(sk)
-	if err != nil {
-		return err
-	}
-
-	meta := channelMetadata{Name: name, About: about, Picture: picture}
 	b, err := json.Marshal(meta)
 	if err != nil {
-		return err
+		return nil, err
 	}
-
-	ev := nostr.Event{
-		PubKey:    pub,
-		CreatedAt: nostr.Now(),
+	ev := &nostr.Event{
+		PubKey:    pubkey,
+		CreatedAt: createdAt,
 		Kind:      nostr.KindChannelCreation,
 		Tags:      nostr.Tags{},
 		Content:   string(b),
 	}
-	clientTag(&ev)
+	clientTag(ev)
+	return ev, nil
+}
+
+// buildChannelPostEvent constructs an unsigned kind 42 event for a message in a channel.
+// channelID must be the hex id of the kind 40 event. If replyID is non-empty it is added as
+// a NIP-10 style "reply" e-tag. relayHint is written into the e-tag(s) as the relay hint (may be "").
+// Links (r) and hashtags (t) found in content are auto-attached.
+func buildChannelPostEvent(pubkey, content, channelID, replyID, relayHint string, createdAt nostr.Timestamp) (*nostr.Event, error) {
+	if strings.TrimSpace(content) == "" {
+		return nil, errors.New("content is empty")
+	}
+	if channelID == "" {
+		return nil, errors.New("channel id is empty")
+	}
+	ev := &nostr.Event{
+		PubKey:    pubkey,
+		CreatedAt: createdAt,
+		Kind:      nostr.KindChannelMessage,
+		Tags:      nostr.Tags{},
+		Content:   content,
+	}
+	clientTag(ev)
+
+	ev.Tags = ev.Tags.AppendUnique(nostr.Tag{"e", channelID, relayHint, "root"})
+	if replyID != "" {
+		ev.Tags = ev.Tags.AppendUnique(nostr.Tag{"e", replyID, relayHint, "reply"})
+	}
+
+	for _, entry := range extractLinks(content) {
+		ev.Tags = ev.Tags.AppendUnique(nostr.Tag{"r", entry.text})
+	}
+	hashtag := nostr.Tag{"t"}
+	for _, m := range extractTags(content) {
+		hashtag = append(hashtag, m.text)
+	}
+	if len(hashtag) > 1 {
+		ev.Tags = ev.Tags.AppendUnique(hashtag)
+	}
+	return ev, nil
+}
+
+// firstWriteRelay returns one URL from cfg.Relays that has Write enabled, or "".
+// Picking a deterministic one (lexicographically smallest) keeps test/runtime behavior reproducible.
+func firstWriteRelay(cfg *Config) string {
+	urls := []string{}
+	for u, r := range cfg.Relays {
+		if r.Write {
+			urls = append(urls, u)
+		}
+	}
+	if len(urls) == 0 {
+		return ""
+	}
+	sort.Strings(urls)
+	return urls[0]
+}
+
+func doChannelCreate(cCtx *cli.Context) error {
+	name := cCtx.String("name")
+	if strings.TrimSpace(name) == "" {
+		return cli.ShowSubcommandHelp(cCtx)
+	}
+	cfg := cCtx.App.Metadata["config"].(*Config)
+
+	sk, pub, err := getSkAndPub(cfg)
+	if err != nil {
+		return err
+	}
+
+	ev, err := buildChannelCreateEvent(pub, channelMetadata{
+		Name:    name,
+		About:   cCtx.String("about"),
+		Picture: cCtx.String("picture"),
+	}, nostr.Now())
+	if err != nil {
+		return err
+	}
 	if err := ev.Sign(sk); err != nil {
 		return err
 	}
 
 	var success atomic.Int64
 	cfg.Do(context.Background(), Relay{Write: true}, func(ctx context.Context, relay *nostr.Relay) bool {
-		if err := relay.Publish(ctx, ev); err != nil {
+		if err := relay.Publish(ctx, *ev); err != nil {
 			fmt.Fprintln(os.Stderr, relay.URL, err)
 		} else {
 			success.Add(1)
@@ -101,13 +160,7 @@ func doChannelList(cCtx *cli.Context) error {
 
 	cfg := cCtx.App.Metadata["config"].(*Config)
 
-	var sk string
-	if _, s, err := nip19.Decode(cfg.PrivateKey); err == nil {
-		sk = s.(string)
-	} else {
-		return err
-	}
-	pub, err := nostr.GetPublicKey(sk)
+	_, pub, err := getSkAndPub(cfg)
 	if err != nil {
 		return err
 	}
@@ -215,13 +268,7 @@ func doChannelPost(cCtx *cli.Context) error {
 
 	cfg := cCtx.App.Metadata["config"].(*Config)
 
-	var sk string
-	if _, s, err := nip19.Decode(cfg.PrivateKey); err == nil {
-		sk = s.(string)
-	} else {
-		return err
-	}
-	pub, err := nostr.GetPublicKey(sk)
+	sk, pub, err := getSkAndPub(cfg)
 	if err != nil {
 		return err
 	}
@@ -236,46 +283,18 @@ func doChannelPost(cCtx *cli.Context) error {
 	} else {
 		content = strings.Join(cCtx.Args().Slice(), "\n")
 	}
-	if strings.TrimSpace(content) == "" {
-		return errors.New("content is empty")
-	}
 
-	ev := nostr.Event{
-		PubKey:    pub,
-		CreatedAt: nostr.Now(),
-		Kind:      nostr.KindChannelMessage,
-		Tags:      nostr.Tags{},
-		Content:   content,
+	ev, err := buildChannelPostEvent(pub, content, channelID, replyID, firstWriteRelay(cfg), nostr.Now())
+	if err != nil {
+		return err
 	}
-	clientTag(&ev)
-
-	for _, entry := range extractLinks(ev.Content) {
-		ev.Tags = ev.Tags.AppendUnique(nostr.Tag{"r", entry.text})
-	}
-
-	hashtag := nostr.Tag{"t"}
-	for _, m := range extractTags(ev.Content) {
-		hashtag = append(hashtag, m.text)
-	}
-	if len(hashtag) > 1 {
-		ev.Tags = ev.Tags.AppendUnique(hashtag)
+	if err := ev.Sign(sk); err != nil {
+		return err
 	}
 
 	var success atomic.Int64
-	var first atomic.Bool
-	first.Store(true)
 	cfg.Do(context.Background(), Relay{Write: true}, func(ctx context.Context, relay *nostr.Relay) bool {
-		if first.Load() {
-			ev.Tags = ev.Tags.AppendUnique(nostr.Tag{"e", channelID, relay.URL, "root"})
-			if replyID != "" {
-				ev.Tags = ev.Tags.AppendUnique(nostr.Tag{"e", replyID, relay.URL, "reply"})
-			}
-			first.Store(false)
-			if err := ev.Sign(sk); err != nil {
-				return true
-			}
-		}
-		if err := relay.Publish(ctx, ev); err != nil {
+		if err := relay.Publish(ctx, *ev); err != nil {
 			fmt.Fprintln(os.Stderr, relay.URL, err)
 		} else {
 			success.Add(1)
