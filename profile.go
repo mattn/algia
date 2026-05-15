@@ -47,8 +47,7 @@ func doProfile(cCtx *cli.Context) error {
 	}
 
 	if j {
-		fmt.Fprintln(os.Stdout, profile)
-		return nil
+		return json.NewEncoder(os.Stdout).Encode(profile)
 	}
 	npub, err := nip19.EncodePublicKey(pub)
 	if err != nil {
