@@ -57,6 +57,7 @@ func doPost(cCtx *cli.Context) error {
 		emoji:          cCtx.StringSlice("emoji"),
 		us:             cCtx.StringSlice("u"),
 		tags:           cCtx.StringSlice("tag"),
+		createdAt:      nostr.Timestamp(cCtx.Int64("created-at")),
 	})
 }
 
@@ -72,6 +73,7 @@ type postArg struct {
 	emoji          []string
 	us             []string
 	tags           []string
+	createdAt      nostr.Timestamp
 }
 
 func callPost(arg *postArg) error {
@@ -85,7 +87,11 @@ func callPost(arg *postArg) error {
 		return err
 	}
 
-	ev, err := buildPostEvent(arg, pub, mentionPubkeys, nostr.Now())
+	createdAt := arg.createdAt
+	if createdAt == 0 {
+		createdAt = nostr.Now()
+	}
+	ev, err := buildPostEvent(arg, pub, mentionPubkeys, createdAt)
 	if err != nil {
 		return err
 	}

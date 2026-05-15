@@ -366,6 +366,11 @@ func doChannelPost(cCtx *cli.Context) error {
 		return cli.ShowSubcommandHelp(cCtx)
 	}
 
+	createdAt := nostr.Timestamp(cCtx.Int64("created-at"))
+	if createdAt == 0 {
+		createdAt = nostr.Now()
+	}
+
 	channelID, err := resolveChannelID(id)
 	if err != nil {
 		return err
@@ -412,7 +417,7 @@ func doChannelPost(cCtx *cli.Context) error {
 		Geohash:        cCtx.String("geohash"),
 		Emojis:         cCtx.StringSlice("emoji"),
 		Tags:           cCtx.StringSlice("tag"),
-	}, cfg.Emojis, nostr.Now())
+	}, cfg.Emojis, createdAt)
 	if err != nil {
 		return err
 	}
