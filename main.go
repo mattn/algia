@@ -1426,7 +1426,8 @@ func main() {
 			},
 		},
 		Before: func(cCtx *cli.Context) error {
-			if cCtx.Args().Get(0) == "version" {
+			switch cCtx.Args().Get(0) {
+			case "", "help", "h", "version":
 				return nil
 			}
 			profile := cCtx.String("a")
@@ -1458,7 +1459,8 @@ func main() {
 			return nil
 		},
 		After: func(cCtx *cli.Context) error {
-			if cCtx.Args().Get(0) == "version" {
+			switch cCtx.Args().Get(0) {
+			case "", "help", "h", "version":
 				return nil
 			}
 			if cfg, ok := cCtx.App.Metadata["config"].(*Config); ok {
