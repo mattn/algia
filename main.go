@@ -1244,7 +1244,10 @@ func main() {
 				Action:    doUpdateProfile,
 			},
 			{
-				Name:      "npub",
+				Name: "npub",
+				Flags: []cli.Flag{
+					&cli.BoolFlag{Name: "hex", Usage: "show hex pubkey instead of npub"},
+				},
 				Usage:     "show own npub",
 				UsageText: "algia npub",
 				HelpName:  "npub",

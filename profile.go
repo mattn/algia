@@ -82,6 +82,10 @@ func doNpub(cCtx *cli.Context) error {
 	if err != nil {
 		return err
 	}
+	if cCtx.Bool("hex") {
+		fmt.Println(pub)
+		return nil
+	}
 	npub, err := nip19.EncodePublicKey(pub)
 	if err != nil {
 		return err
