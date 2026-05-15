@@ -132,7 +132,7 @@ func pay(cfg *Config, invoice string) error {
 		return err
 	}
 	if resp.Err != nil {
-		return fmt.Errorf(resp.Err.Message)
+		return errors.New(resp.Err.Message)
 	}
 	json.NewEncoder(os.Stdout).Encode(resp)
 	return nil
