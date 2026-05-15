@@ -409,22 +409,28 @@ func fetchEventAuthorHints(ctx context.Context, cfg *Config, filter nostr.Filter
 }
 
 func doUnlike(cCtx *cli.Context) error {
-	id := cCtx.String("id")
+	return callUnlike(&unlikeArg{
+		ctx: cCtx.Context,
+		cfg: cCtx.App.Metadata["config"].(*Config),
+		id:  cCtx.String("id"),
+	})
+}
+
+type unlikeArg struct {
+	ctx context.Context
+	cfg *Config
+	id  string
+}
+
+func callUnlike(arg *unlikeArg) error {
+	id := arg.id
 	if evp := sdk.InputToEventPointer(id); evp != nil {
 		id = evp.ID
 	} else {
-		return fmt.Errorf("failed to parse event from '%s'", id)
+		return fmt.Errorf("failed to parse event from '%s'", arg.id)
 	}
 
-	cfg := cCtx.App.Metadata["config"].(*Config)
-
-	var sk string
-	if _, s, err := nip19.Decode(cfg.PrivateKey); err == nil {
-		sk = s.(string)
-	} else {
-		return err
-	}
-	pub, err := nostr.GetPublicKey(sk)
+	sk, pub, err := getSkAndPub(arg.cfg)
 	if err != nil {
 		return err
 	}
@@ -435,7 +441,7 @@ func doUnlike(cCtx *cli.Context) error {
 	}
 	var likeID string
 	var mu sync.Mutex
-	cfg.Do(context.Background(), Relay{Write: true}, func(ctx context.Context, relay *nostr.Relay) bool {
+	arg.cfg.Do(arg.ctx, Relay{Write: true}, func(ctx context.Context, relay *nostr.Relay) bool {
 		evs, err := relay.QuerySync(ctx, filter)
 		if err != nil {
 			return true
@@ -457,7 +463,7 @@ func doUnlike(cCtx *cli.Context) error {
 	}
 
 	var success atomic.Int64
-	cfg.Do(context.Background(), Relay{Write: true}, func(ctx context.Context, relay *nostr.Relay) bool {
+	arg.cfg.Do(arg.ctx, Relay{Write: true}, func(ctx context.Context, relay *nostr.Relay) bool {
 		err := relay.Publish(ctx, *ev)
 		if err != nil {
 			fmt.Fprintln(os.Stderr, relay.URL, err)
@@ -470,6 +476,29 @@ func doUnlike(cCtx *cli.Context) error {
 		return errors.New("cannot unlike")
 	}
 	return nil
+}
+
+type getEventArg struct {
+	ctx context.Context
+	cfg *Config
+	id  string
+}
+
+func callGetEvent(arg *getEventArg) (*nostr.Event, error) {
+	id := arg.id
+	if evp := sdk.InputToEventPointer(id); evp != nil {
+		id = evp.ID
+	} else {
+		return nil, fmt.Errorf("failed to parse event from '%s'", arg.id)
+	}
+	evs, err := arg.cfg.QueryEvents(arg.ctx, nostr.Filters{{IDs: []string{id}, Limit: 1}})
+	if err != nil {
+		return nil, err
+	}
+	if len(evs) == 0 {
+		return nil, fmt.Errorf("event not found: %s", arg.id)
+	}
+	return evs[0], nil
 }
 
 func doDelete(cCtx *cli.Context) error {

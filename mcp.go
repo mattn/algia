@@ -175,6 +175,49 @@ func doMcp(cCtx *cli.Context) error {
 		return mcp.NewToolResultText("OK"), nil
 	})
 
+	s.AddTool(mcp.NewTool("unlike_nostr_event",
+		mcp.WithDescription("Remove a previous like (reaction) from a Nostr note. Looks up your most recent reaction to the given event id and publishes a NIP-09 deletion event for it."),
+		mcp.WithString("id", mcp.Description("The event ID (hex, note, or nevent) of the note to unlike"), mcp.Required()),
+	), func(ctx context.Context, r mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		err := callUnlike(&unlikeArg{
+			ctx: ctx,
+			cfg: cCtx.App.Metadata["config"].(*Config),
+			id:  required[string](r, "id"),
+		})
+		if err != nil {
+			return mcp.NewToolResultError(err.Error()), nil
+		}
+		return mcp.NewToolResultText("OK"), nil
+	})
+
+	s.AddTool(mcp.NewTool("get_nostr_event",
+		mcp.WithDescription("Fetch a single Nostr event by its ID. Accepts hex, note, or nevent. Use this to deep-dive on an ID surfaced by timeline/search results."),
+		mcp.WithString("id", mcp.Description("The event ID (hex, note, or nevent) to fetch"), mcp.Required()),
+		mcp.WithOutputSchema[nostr.Event](),
+	), mcp.NewStructuredToolHandler(func(ctx context.Context, r mcp.CallToolRequest, arg any) (nostr.Event, error) {
+		ev, err := callGetEvent(&getEventArg{
+			ctx: ctx,
+			cfg: cCtx.App.Metadata["config"].(*Config),
+			id:  required[string](r, "id"),
+		})
+		if err != nil {
+			return nostr.Event{}, err
+		}
+		return *ev, nil
+	}))
+
+	s.AddTool(mcp.NewTool("get_nostr_bookmarks",
+		mcp.WithDescription("Get the current user's bookmarked Nostr notes (NIP-51 categorized bookmarks list with d=bookmark). Returns the bookmarked text notes themselves, not the bookmark list event."),
+		mcp.WithNumber("number", mcp.Description("Max number of bookmark list events to look up (default 30)"), mcp.DefaultNumber(30)),
+		mcp.WithOutputSchema[[]*nostr.Event](),
+	), mcp.NewStructuredToolHandler(func(ctx context.Context, r mcp.CallToolRequest, arg any) ([]*nostr.Event, error) {
+		return callBookmarks(&bookmarksArg{
+			ctx: ctx,
+			cfg: cCtx.App.Metadata["config"].(*Config),
+			n:   r.GetInt("number", 30),
+		})
+	}))
+
 	s.AddTool(mcp.NewTool("delete_nostr_note",
 		mcp.WithDescription("Delete a Nostr note"),
 		mcp.WithString("id", mcp.Description("The event ID (hex string) of the note to delete"), mcp.Required()),
