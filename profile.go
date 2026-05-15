@@ -41,17 +41,23 @@ func doProfile(cCtx *cli.Context) error {
 		}
 	}
 
-	profile, err := cfg.GetProfile(user)
+	npub, err := nip19.EncodePublicKey(pub)
 	if err != nil {
 		return err
 	}
 
+	profile, err := cfg.GetProfile(user)
+	if err != nil {
+		if j {
+			return err
+		}
+		fmt.Fprintln(os.Stderr, err)
+		fmt.Printf("Pubkey: %v\n", npub)
+		return nil
+	}
+
 	if j {
 		return json.NewEncoder(os.Stdout).Encode(profile)
-	}
-	npub, err := nip19.EncodePublicKey(pub)
-	if err != nil {
-		return err
 	}
 	fmt.Printf("Pubkey: %v\n", npub)
 	fmt.Printf("Name: %v\n", profile.Name)
@@ -62,6 +68,25 @@ func doProfile(cCtx *cli.Context) error {
 	fmt.Printf("LUD-16: %v\n", profile.Lud16)
 	fmt.Printf("About: %v\n", profile.About)
 	fmt.Printf("Bot: %v\n", profile.Bot)
+	return nil
+}
+
+func doNpub(cCtx *cli.Context) error {
+	cfg := cCtx.App.Metadata["config"].(*Config)
+
+	_, s, err := nip19.Decode(cfg.PrivateKey)
+	if err != nil {
+		return err
+	}
+	pub, err := nostr.GetPublicKey(s.(string))
+	if err != nil {
+		return err
+	}
+	npub, err := nip19.EncodePublicKey(pub)
+	if err != nil {
+		return err
+	}
+	fmt.Println(npub)
 	return nil
 }
 

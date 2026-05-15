@@ -1244,6 +1244,13 @@ func main() {
 				Action:    doUpdateProfile,
 			},
 			{
+				Name:      "npub",
+				Usage:     "show own npub",
+				UsageText: "algia npub",
+				HelpName:  "npub",
+				Action:    doNpub,
+			},
+			{
 				Name:      "powa",
 				Usage:     "post ぽわ〜",
 				UsageText: "algia powa",
