@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/nbd-wtf/go-nostr"
@@ -12,7 +13,8 @@ import (
 )
 
 // buildDeleteEvent constructs an unsigned kind 5 (deletion) event for a single target id.
-func buildDeleteEvent(pubkey, targetID string, now nostr.Timestamp) (*nostr.Event, error) {
+// If targetKind > 0, a NIP-09 "k" tag is added.
+func buildDeleteEvent(pubkey, targetID string, targetKind int, now nostr.Timestamp) (*nostr.Event, error) {
 	if targetID == "" {
 		return nil, errors.New("target id is empty")
 	}
@@ -22,21 +24,29 @@ func buildDeleteEvent(pubkey, targetID string, now nostr.Timestamp) (*nostr.Even
 		Kind:      nostr.KindDeletion,
 		Tags:      nostr.Tags{nostr.Tag{"e", targetID}},
 	}
+	if targetKind > 0 {
+		ev.Tags = append(ev.Tags, nostr.Tag{"k", strconv.Itoa(targetKind)})
+	}
 	return ev, nil
 }
 
 // buildLikeEvent constructs an unsigned kind 7 (reaction) event.
 // content "" defaults to "+"; if emoji is set, content becomes ":name:" and an emoji tag is added.
 // mentionedPubkeys are appended as "p" tags (e.g., the original author for NIP-25 hints).
-func buildLikeEvent(pubkey, targetID, content, emoji string, mentionedPubkeys []string, now nostr.Timestamp) (*nostr.Event, error) {
+// relayHint, when non-empty, is appended to the "e" tag.
+func buildLikeEvent(pubkey, targetID, relayHint, content, emoji string, mentionedPubkeys []string, now nostr.Timestamp) (*nostr.Event, error) {
 	if targetID == "" {
 		return nil, errors.New("target id is empty")
+	}
+	etag := nostr.Tag{"e", targetID}
+	if relayHint != "" {
+		etag = append(etag, relayHint)
 	}
 	ev := &nostr.Event{
 		PubKey:    pubkey,
 		CreatedAt: now,
 		Kind:      nostr.KindReaction,
-		Tags:      nostr.Tags{nostr.Tag{"e", targetID}},
+		Tags:      nostr.Tags{etag},
 		Content:   content,
 	}
 	if emoji != "" {

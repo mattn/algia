@@ -14,7 +14,7 @@ const testTargetID = "1111111111111111111111111111111111111111111111111111111111
 // --- buildDeleteEvent ---
 
 func TestBuildDeleteEvent(t *testing.T) {
-	ev, err := buildDeleteEvent(testPub, testTargetID, 100)
+	ev, err := buildDeleteEvent(testPub, testTargetID, 0, 100)
 	if err != nil {
 		t.Fatalf("err=%v", err)
 	}
@@ -31,10 +31,24 @@ func TestBuildDeleteEvent(t *testing.T) {
 	if e == nil || len(e) < 2 || e[1] != testTargetID {
 		t.Errorf("missing/wrong e tag: %v", ev.Tags)
 	}
+	if k := findTag(ev.Tags, "k"); k != nil {
+		t.Errorf("unexpected k tag for targetKind=0: %v", k)
+	}
+}
+
+func TestBuildDeleteEvent_WithKind(t *testing.T) {
+	ev, err := buildDeleteEvent(testPub, testTargetID, nostr.KindTextNote, 100)
+	if err != nil {
+		t.Fatalf("err=%v", err)
+	}
+	k := findTag(ev.Tags, "k")
+	if k == nil || len(k) < 2 || k[1] != "1" {
+		t.Errorf("missing/wrong k tag: %v", ev.Tags)
+	}
 }
 
 func TestBuildDeleteEvent_EmptyID(t *testing.T) {
-	if _, err := buildDeleteEvent(testPub, "", 0); err == nil {
+	if _, err := buildDeleteEvent(testPub, "", 0, 0); err == nil {
 		t.Fatal("expected error")
 	}
 }
@@ -42,7 +56,7 @@ func TestBuildDeleteEvent_EmptyID(t *testing.T) {
 // --- buildLikeEvent ---
 
 func TestBuildLikeEvent_DefaultsToPlus(t *testing.T) {
-	ev, err := buildLikeEvent(testPub, testTargetID, "", "", nil, 0)
+	ev, err := buildLikeEvent(testPub, testTargetID, "", "", "", nil, 0)
 	if err != nil {
 		t.Fatalf("err=%v", err)
 	}
@@ -55,7 +69,7 @@ func TestBuildLikeEvent_DefaultsToPlus(t *testing.T) {
 }
 
 func TestBuildLikeEvent_ExplicitContent(t *testing.T) {
-	ev, err := buildLikeEvent(testPub, testTargetID, "🔥", "", nil, 0)
+	ev, err := buildLikeEvent(testPub, testTargetID, "", "🔥", "", nil, 0)
 	if err != nil {
 		t.Fatalf("err=%v", err)
 	}
@@ -65,7 +79,7 @@ func TestBuildLikeEvent_ExplicitContent(t *testing.T) {
 }
 
 func TestBuildLikeEvent_EmojiWrapsContent(t *testing.T) {
-	ev, err := buildLikeEvent(testPub, testTargetID, "love", "https://e.example/love.png", nil, 0)
+	ev, err := buildLikeEvent(testPub, testTargetID, "", "love", "https://e.example/love.png", nil, 0)
 	if err != nil {
 		t.Fatalf("err=%v", err)
 	}
@@ -79,7 +93,7 @@ func TestBuildLikeEvent_EmojiWrapsContent(t *testing.T) {
 }
 
 func TestBuildLikeEvent_EmojiWithoutContent(t *testing.T) {
-	ev, err := buildLikeEvent(testPub, testTargetID, "", "https://e.example/x.png", nil, 0)
+	ev, err := buildLikeEvent(testPub, testTargetID, "", "", "https://e.example/x.png", nil, 0)
 	if err != nil {
 		t.Fatalf("err=%v", err)
 	}
@@ -90,13 +104,24 @@ func TestBuildLikeEvent_EmojiWithoutContent(t *testing.T) {
 
 func TestBuildLikeEvent_MentionedPubkeys(t *testing.T) {
 	pubs := []string{"aa", "bb"}
-	ev, err := buildLikeEvent(testPub, testTargetID, "", "", pubs, 0)
+	ev, err := buildLikeEvent(testPub, testTargetID, "", "", "", pubs, 0)
 	if err != nil {
 		t.Fatalf("err=%v", err)
 	}
 	ps := findAllTags(ev.Tags, "p")
 	if len(ps) != 2 || ps[0][1] != "aa" || ps[1][1] != "bb" {
 		t.Errorf("p tags wrong: %v", ps)
+	}
+}
+
+func TestBuildLikeEvent_RelayHint(t *testing.T) {
+	ev, err := buildLikeEvent(testPub, testTargetID, "wss://r.example", "", "", nil, 0)
+	if err != nil {
+		t.Fatalf("err=%v", err)
+	}
+	e := findTag(ev.Tags, "e")
+	if e == nil || len(e) < 3 || e[1] != testTargetID || e[2] != "wss://r.example" {
+		t.Errorf("e tag wrong: %v", e)
 	}
 }
 

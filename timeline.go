@@ -23,6 +23,16 @@ import (
 
 var usageError = errors.New("usage")
 
+// firstRelayHint returns the first non-empty URL from hints, or fallback if none.
+func firstRelayHint(hints []string, fallback string) string {
+	for _, h := range hints {
+		if h != "" {
+			return h
+		}
+	}
+	return fallback
+}
+
 func doPost(cCtx *cli.Context) error {
 	stdin := cCtx.Bool("stdin")
 	if !stdin && cCtx.Args().Len() == 0 {
@@ -208,8 +218,10 @@ func doReply(cCtx *cli.Context) error {
 		return err
 	}
 
+	var hints []string
 	if evp := sdk.InputToEventPointer(id); evp != nil {
 		id = evp.ID
+		hints = evp.Relays
 	} else {
 		return fmt.Errorf("failed to parse event from '%s'", id)
 	}
@@ -228,7 +240,7 @@ func doReply(cCtx *cli.Context) error {
 	ev, err := buildReplyEvent(pub, replyOpts{
 		Content:   content,
 		ReplyToID: id,
-		RelayHint: firstWriteRelay(cfg),
+		RelayHint: firstRelayHint(hints, firstWriteRelay(cfg)),
 		Quote:     cCtx.Bool("quote"),
 		Sensitive: cCtx.String("sensitive"),
 		Geohash:   cCtx.String("geohash"),
@@ -305,7 +317,7 @@ func doUnrepost(cCtx *cli.Context) error {
 		return true
 	})
 
-	ev, err := buildDeleteEvent(pub, repostID, nostr.Now())
+	ev, err := buildDeleteEvent(pub, repostID, nostr.KindRepost, nostr.Now())
 	if err != nil {
 		return err
 	}
@@ -353,8 +365,10 @@ func callLike(arg *likeArg) error {
 		return err
 	}
 
+	var hints []string
 	if evp := sdk.InputToEventPointer(arg.id); evp != nil {
 		arg.id = evp.ID
+		hints = evp.Relays
 	} else {
 		return fmt.Errorf("failed to parse event from '%s'", arg.id)
 	}
@@ -366,7 +380,7 @@ func callLike(arg *likeArg) error {
 	}
 	mentionedPubkeys := fetchEventAuthorHints(arg.ctx, arg.cfg, filter)
 
-	ev, err := buildLikeEvent(pub, arg.id, arg.content, arg.emoji, mentionedPubkeys, nostr.Now())
+	ev, err := buildLikeEvent(pub, arg.id, firstRelayHint(hints, ""), arg.content, arg.emoji, mentionedPubkeys, nostr.Now())
 	if err != nil {
 		return err
 	}
@@ -460,7 +474,7 @@ func callUnlike(arg *unlikeArg) error {
 		return true
 	})
 
-	ev, err := buildDeleteEvent(pub, likeID, nostr.Now())
+	ev, err := buildDeleteEvent(pub, likeID, nostr.KindReaction, nostr.Now())
 	if err != nil {
 		return err
 	}
@@ -905,8 +919,10 @@ type replyArg struct {
 
 func callReply(arg *replyArg) error {
 	id := arg.id
+	var hints []string
 	if evp := sdk.InputToEventPointer(id); evp != nil {
 		id = evp.ID
+		hints = evp.Relays
 	} else {
 		return fmt.Errorf("failed to parse event from '%s'", id)
 	}
@@ -919,7 +935,7 @@ func callReply(arg *replyArg) error {
 	ev, err := buildReplyEvent(pub, replyOpts{
 		Content:   arg.content,
 		ReplyToID: id,
-		RelayHint: firstWriteRelay(arg.cfg),
+		RelayHint: firstRelayHint(hints, firstWriteRelay(arg.cfg)),
 	}, arg.cfg.Emojis, nostr.Now())
 	if err != nil {
 		return err
@@ -958,8 +974,10 @@ func callRepost(arg *repostArg) error {
 		return err
 	}
 
+	var hints []string
 	if evp := sdk.InputToEventPointer(id); evp != nil {
 		id = evp.ID
+		hints = evp.Relays
 	} else {
 		return fmt.Errorf("failed to parse event from '%s'", id)
 	}
@@ -970,7 +988,7 @@ func callRepost(arg *repostArg) error {
 	}
 	mentionedPubkeys := fetchEventAuthorHints(arg.ctx, arg.cfg, filter)
 
-	ev, err := buildRepostEvent(pub, id, firstWriteRelay(arg.cfg), mentionedPubkeys, nostr.Now())
+	ev, err := buildRepostEvent(pub, id, firstRelayHint(hints, firstWriteRelay(arg.cfg)), mentionedPubkeys, nostr.Now())
 	if err != nil {
 		return err
 	}
@@ -1032,7 +1050,7 @@ func callUnrepost(arg *unrepostArg) error {
 		return true
 	})
 
-	ev, err := buildDeleteEvent(pub, repostID, nostr.Now())
+	ev, err := buildDeleteEvent(pub, repostID, nostr.KindRepost, nostr.Now())
 	if err != nil {
 		return err
 	}
@@ -1064,8 +1082,12 @@ type deleteArg struct {
 
 func callDelete(arg *deleteArg) error {
 	id := arg.id
+	var hints []string
+	var kind int
 	if evp := sdk.InputToEventPointer(id); evp != nil {
 		id = evp.ID
+		hints = evp.Relays
+		kind = evp.Kind
 	} else {
 		return fmt.Errorf("failed to parse event from '%s'", id)
 	}
@@ -1075,7 +1097,7 @@ func callDelete(arg *deleteArg) error {
 		return err
 	}
 
-	ev, err := buildDeleteEvent(pub, id, nostr.Now())
+	ev, err := buildDeleteEvent(pub, id, kind, nostr.Now())
 	if err != nil {
 		return err
 	}
@@ -1093,6 +1115,25 @@ func callDelete(arg *deleteArg) error {
 		}
 		return true
 	})
+
+	// Also publish to relay hints from the nevent that aren't already in cfg.Relays.
+	for _, url := range hints {
+		if _, ok := arg.cfg.Relays[url]; ok {
+			continue
+		}
+		relay, err := nostr.RelayConnect(arg.ctx, url)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, url, err)
+			continue
+		}
+		if err := relay.Publish(arg.ctx, *ev); err != nil {
+			fmt.Fprintln(os.Stderr, url, err)
+		} else {
+			success.Add(1)
+		}
+		relay.Close()
+	}
+
 	if success.Load() == 0 {
 		return errors.New("cannot delete")
 	}
