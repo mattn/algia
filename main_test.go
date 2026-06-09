@@ -1,6 +1,11 @@
 package main
 
-import "testing"
+import (
+	"strings"
+	"testing"
+
+	"github.com/nbd-wtf/go-nostr/nip19"
+)
 
 func TestIncludeKind(t *testing.T) {
 	tests := []struct {
@@ -22,5 +27,50 @@ func TestIncludeKind(t *testing.T) {
 				t.Errorf("got=%v want=%v", got, tt.want)
 			}
 		})
+	}
+}
+
+func TestNormalizeProfileKey(t *testing.T) {
+	pubkey := strings.Repeat("0", 64)
+	npub, err := nip19.EncodePublicKey(pubkey)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	tests := []struct {
+		name string
+		key  string
+		want string
+		ok   bool
+	}{
+		{"hex", pubkey, pubkey, true},
+		{"npub", npub, pubkey, true},
+		{"invalid", "not-a-profile-key", "", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, ok := normalizeProfileKey(tt.key)
+			if got != tt.want || ok != tt.ok {
+				t.Errorf("got=(%q, %v) want=(%q, %v)", got, ok, tt.want, tt.ok)
+			}
+		})
+	}
+}
+
+func TestMissingProfilePubkeys(t *testing.T) {
+	profiles := map[string]Profile{
+		"a": {Name: "cached"},
+	}
+	follows := []string{"a", "b", "b", "c", "d"}
+
+	got := missingProfilePubkeys(profiles, follows, 2)
+	want := []string{"b", "c"}
+	if len(got) != len(want) {
+		t.Fatalf("got=%v want=%v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("got=%v want=%v", got, want)
+		}
 	}
 }

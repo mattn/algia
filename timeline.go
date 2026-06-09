@@ -23,6 +23,11 @@ import (
 
 var usageError = errors.New("usage")
 
+const (
+	eventAuthorLookupTimeout = 2 * time.Second
+	likePublishTimeout       = 3 * time.Second
+)
+
 // firstRelayHint returns the first non-empty URL from hints, or fallback if none.
 func firstRelayHint(hints []string, fallback string) string {
 	for _, h := range hints {
@@ -366,19 +371,25 @@ func callLike(arg *likeArg) error {
 	}
 
 	var hints []string
+	var author string
 	if evp := sdk.InputToEventPointer(arg.id); evp != nil {
 		arg.id = evp.ID
 		hints = evp.Relays
+		author = evp.Author
 	} else {
 		return fmt.Errorf("failed to parse event from '%s'", arg.id)
 	}
 
-	// Look up the original event to surface the original author as a p-tag hint (NIP-25).
-	filter := nostr.Filter{
-		Kinds: []int{nostr.KindTextNote},
-		IDs:   []string{arg.id},
+	mentionedPubkeys := []string{}
+	if nostr.IsValidPublicKey(author) {
+		mentionedPubkeys = append(mentionedPubkeys, author)
+	} else if relayHint := firstRelayHint(hints, ""); relayHint != "" {
+		mentionedPubkeys = fetchEventAuthorHintsFromRelay(arg.ctx, relayHint, nostr.Filter{
+			Kinds: []int{nostr.KindTextNote},
+			IDs:   []string{arg.id},
+			Limit: 1,
+		})
 	}
-	mentionedPubkeys := fetchEventAuthorHints(arg.ctx, arg.cfg, filter)
 
 	ev, err := buildLikeEvent(pub, arg.id, firstRelayHint(hints, ""), arg.content, arg.emoji, mentionedPubkeys, nostr.Now())
 	if err != nil {
@@ -389,7 +400,9 @@ func callLike(arg *likeArg) error {
 	}
 
 	var success atomic.Int64
-	arg.cfg.Do(arg.ctx, Relay{Write: true}, func(ctx context.Context, relay *nostr.Relay) bool {
+	ctx, cancel := context.WithTimeout(arg.ctx, likePublishTimeout)
+	defer cancel()
+	arg.cfg.Do(ctx, Relay{Write: true}, func(ctx context.Context, relay *nostr.Relay) bool {
 		err := relay.Publish(ctx, *ev)
 		if err != nil {
 			fmt.Fprintln(os.Stderr, relay.URL, err)
@@ -404,10 +417,7 @@ func callLike(arg *likeArg) error {
 	return nil
 }
 
-// fetchEventAuthorHints returns event IDs found from the first responding write relay.
-// The original behavior here is to surface the event's id as a "p" tag in the reaction —
-// preserved verbatim from the pre-builder code path (note: NIP-25 actually expects the
-// author's pubkey here, but changing that is out of scope for this refactor).
+// fetchEventAuthorHints returns authors found from the first responding write relay.
 func fetchEventAuthorHints(ctx context.Context, cfg *Config, filter nostr.Filter) []string {
 	var ids []string
 	var first atomic.Bool
@@ -421,11 +431,32 @@ func fetchEventAuthorHints(ctx context.Context, cfg *Config, filter nostr.Filter
 			return true
 		}
 		for _, tmp := range evs {
-			ids = append(ids, tmp.ID)
+			ids = append(ids, tmp.PubKey)
 		}
 		return true
 	})
 	return ids
+}
+
+func fetchEventAuthorHintsFromRelay(ctx context.Context, relayURL string, filter nostr.Filter) []string {
+	ctx, cancel := context.WithTimeout(ctx, eventAuthorLookupTimeout)
+	defer cancel()
+
+	relay, err := nostr.RelayConnect(ctx, relayURL)
+	if err != nil {
+		return nil
+	}
+	defer relay.Close()
+
+	evs, err := relay.QuerySync(ctx, filter)
+	if err != nil {
+		return nil
+	}
+	authors := make([]string, 0, len(evs))
+	for _, ev := range evs {
+		authors = append(authors, ev.PubKey)
+	}
+	return authors
 }
 
 func doUnlike(cCtx *cli.Context) error {

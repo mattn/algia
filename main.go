@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -28,6 +29,14 @@ const name = "algia"
 const version = "0.0.121"
 
 var revision = "HEAD"
+
+const (
+	followListCacheTTL   = 24 * time.Hour
+	relayMetadataTimeout = 2 * time.Second
+	followListTimeout    = 8 * time.Second
+	profileBatchTimeout  = 2 * time.Second
+	profileBatchMaxFetch = 100
+)
 
 // Relay is
 type Relay struct {
@@ -134,15 +143,15 @@ func loadConfig(profile string) (*Config, error) {
 		}
 	}
 
-	// Load profiles from profiles.json (stored with npub keys)
+	// Load profiles from profiles.json. Older versions stored hex keys, newer
+	// versions store npub keys.
 	cfg.profiles = make(map[string]Profile)
 	if profilesData, err := os.ReadFile(profilesFp); err == nil {
 		var npubProfiles map[string]Profile
 		if err := json.Unmarshal(profilesData, &npubProfiles); err == nil {
-			// Convert npub keys to hex pubkeys
-			for npub, profile := range npubProfiles {
-				if _, pubkey, err := nip19.Decode(npub); err == nil {
-					cfg.profiles[pubkey.(string)] = profile
+			for key, profile := range npubProfiles {
+				if pubkey, ok := normalizeProfileKey(key); ok {
+					cfg.profiles[pubkey] = profile
 				}
 			}
 		}
@@ -164,6 +173,48 @@ func loadConfig(profile string) (*Config, error) {
 	return &cfg, nil
 }
 
+func normalizeProfileKey(key string) (string, bool) {
+	if prefix, decoded, err := nip19.Decode(key); err == nil && prefix == "npub" {
+		if pubkey, ok := decoded.(string); ok {
+			return pubkey, true
+		}
+	}
+	if len(key) == 64 {
+		if _, err := hex.DecodeString(key); err == nil {
+			return key, true
+		}
+	}
+	return "", false
+}
+
+func npubProfileMap(profiles map[string]Profile) map[string]Profile {
+	npubProfiles := make(map[string]Profile, len(profiles))
+	for pubkey, profile := range profiles {
+		if npub, err := nip19.EncodePublicKey(pubkey); err == nil {
+			npubProfiles[npub] = profile
+		}
+	}
+	return npubProfiles
+}
+
+func missingProfilePubkeys(profiles map[string]Profile, follows []string, limit int) []string {
+	missing := make([]string, 0, min(len(follows), limit))
+	seen := make(map[string]bool, min(len(follows), limit))
+	for _, pubkey := range follows {
+		if len(missing) >= limit {
+			break
+		}
+		if seen[pubkey] {
+			continue
+		}
+		seen[pubkey] = true
+		if _, ok := profiles[pubkey]; !ok {
+			missing = append(missing, pubkey)
+		}
+	}
+	return missing
+}
+
 // CheckUpdate is
 func (cfg *Config) CheckUpdate(profile string) (map[string]Profile, error) {
 	var pub string
@@ -176,10 +227,9 @@ func (cfg *Config) CheckUpdate(profile string) (map[string]Profile, error) {
 	}
 
 	// get followers
-	configIsOld := cfg.Updated.IsZero() || time.Since(cfg.Updated) > 24*time.Hour
-	if len(cfg.FollowList) == 0 || len(cfg.profiles) == 0 || configIsOld {
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer cancel()
+	configIsOld := cfg.Updated.IsZero() || time.Since(cfg.Updated) > followListCacheTTL
+	shouldRefreshFollows := len(cfg.FollowList) == 0 || configIsOld
+	if shouldRefreshFollows {
 		relays := []string{}
 		for k, v := range cfg.Relays {
 			if v.Read {
@@ -193,6 +243,7 @@ func (cfg *Config) CheckUpdate(profile string) (map[string]Profile, error) {
 
 		// Get relay list metadata
 		if !cfg.tempRelay {
+			ctx, cancel := context.WithTimeout(context.Background(), relayMetadataTimeout)
 			if ev := cfg.pool.QuerySingle(ctx, relays, nostr.Filter{
 				Kinds:   []int{nostr.KindRelayListMetadata},
 				Authors: []string{pub},
@@ -223,13 +274,24 @@ func (cfg *Config) CheckUpdate(profile string) (map[string]Profile, error) {
 				for k, v1 := range cfg.Relays {
 					if v2, ok := rm[k]; ok {
 						v2.Search = v1.Search
+						rm[k] = v2
 					}
 				}
-				cfg.Relays = rm
+				if len(rm) > 0 {
+					cfg.Relays = rm
+					relays = relays[:0]
+					for k, v := range cfg.Relays {
+						if v.Read {
+							relays = append(relays, k)
+						}
+					}
+				}
 			}
+			cancel()
 		}
 
 		// Get follow list
+		ctx, cancel := context.WithTimeout(context.Background(), followListTimeout)
 		if ev := cfg.pool.QuerySingle(ctx, relays, nostr.Filter{
 			Kinds:   []int{nostr.KindFollowList},
 			Authors: []string{pub},
@@ -247,52 +309,45 @@ func (cfg *Config) CheckUpdate(profile string) (map[string]Profile, error) {
 			if cfg.verbose {
 				fmt.Printf("found %d followers\n", len(follows))
 			}
-
-			// Batch fetch profiles
-			if len(follows) > 0 {
-				profileCount := 0
-				fetchedProfiles := make(map[string]bool)
-				for relayEvent := range cfg.pool.SubManyEose(ctx, relays, nostr.Filters{{
-					Kinds:   []int{nostr.KindProfileMetadata},
-					Authors: follows,
-				}}) {
-					if relayEvent.Event == nil {
-						continue
-					}
-					ev := relayEvent.Event
-					var profile Profile
-					if err := json.Unmarshal([]byte(ev.Content), &profile); err == nil {
-						profile.FetchedAt = time.Now()
-						cfg.profiles[ev.PubKey] = profile
-						cfg.profileChanged = true
-						fetchedProfiles[ev.PubKey] = true
-						profileCount++
-					}
-				}
-
-				// Create empty profiles for follows without metadata
-				for _, pubkey := range follows {
-					if !fetchedProfiles[pubkey] {
-						if _, exists := cfg.profiles[pubkey]; !exists {
-							// Create a minimal profile with pubkey as name
-							npub, _ := nip19.EncodePublicKey(pubkey)
-							cfg.profiles[pubkey] = Profile{
-								Name:      npub[:16] + "...", // Shortened npub
-								FetchedAt: time.Now(),
-							}
-							cfg.profileChanged = true
-						}
-					}
-				}
-
-				if cfg.verbose {
-					fmt.Printf("fetched %d profiles out of %d follows\n", profileCount, len(follows))
-				}
-			}
 		}
+		cancel()
 
 		if err := cfg.saveConfig(profile); err != nil {
 			return nil, err
+		}
+	}
+
+	relays := []string{}
+	for k, v := range cfg.Relays {
+		if v.Read {
+			relays = append(relays, k)
+		}
+	}
+	missingProfiles := missingProfilePubkeys(cfg.profiles, cfg.FollowList, profileBatchMaxFetch)
+	if len(relays) > 0 && len(missingProfiles) > 0 {
+		ctx, cancel := context.WithTimeout(context.Background(), profileBatchTimeout)
+		defer cancel()
+
+		profileCount := 0
+		for relayEvent := range cfg.pool.SubManyEose(ctx, relays, nostr.Filters{{
+			Kinds:   []int{nostr.KindProfileMetadata},
+			Authors: missingProfiles,
+		}}) {
+			if relayEvent.Event == nil {
+				continue
+			}
+			ev := relayEvent.Event
+			var profile Profile
+			if err := json.Unmarshal([]byte(ev.Content), &profile); err == nil {
+				profile.FetchedAt = time.Now()
+				cfg.profiles[ev.PubKey] = profile
+				cfg.profileChanged = true
+				profileCount++
+			}
+		}
+
+		if cfg.verbose {
+			fmt.Printf("fetched %d missing profiles out of %d follows\n", profileCount, len(cfg.FollowList))
 		}
 	}
 
@@ -334,7 +389,7 @@ func (cfg *Config) GetProfile(npub string) (*Profile, error) {
 	}
 
 	// Check cache first and see if it's fresh (less than 24 hours old)
-	if profile, ok := cfg.profiles[npub]; ok {
+	if profile, ok := cfg.profiles[pub]; ok {
 		if !profile.FetchedAt.IsZero() && time.Since(profile.FetchedAt) < 24*time.Hour {
 			return &profile, nil
 		}
@@ -454,7 +509,7 @@ func (cfg *Config) saveConfig(profile string) error {
 
 	// Save profiles only if changed
 	if cfg.profileChanged && cfg.profiles != nil && len(cfg.profiles) > 0 {
-		profilesData, err := json.MarshalIndent(cfg.profiles, "", "  ")
+		profilesData, err := json.MarshalIndent(npubProfileMap(cfg.profiles), "", "  ")
 		if err != nil {
 			return err
 		}
@@ -485,13 +540,7 @@ func (cfg *Config) saveProfiles(profile string) error {
 
 	// Save profiles only if changed (convert hex pubkeys to npub)
 	if cfg.profiles != nil && len(cfg.profiles) > 0 {
-		npubProfiles := make(map[string]Profile)
-		for pubkey, profile := range cfg.profiles {
-			if npub, err := nip19.EncodePublicKey(pubkey); err == nil {
-				npubProfiles[npub] = profile
-			}
-		}
-		profilesData, err := json.MarshalIndent(npubProfiles, "", "  ")
+		profilesData, err := json.MarshalIndent(npubProfileMap(cfg.profiles), "", "  ")
 		if err != nil {
 			return err
 		}
