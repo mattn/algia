@@ -647,23 +647,137 @@ func mirrorBlob(ctx context.Context, sk, server, sourceURL, hash string) (*bloss
 	return &bd, nil
 }
 
-// mirrorTo replicates the blob at sourceURL into the destination server. Blossom
-// destinations use the BUD-04 /mirror endpoint; NIP-96 destinations have no
-// server-side mirror, so the blob is fetched and re-uploaded.
-func mirrorTo(ctx context.Context, dest fileServer, sk, sourceURL, hash string) (*blossom.BlobDescriptor, error) {
-	if dest.Type == typeNIP96 {
-		data, ct, err := httpGetBytes(ctx, sourceURL)
-		if err != nil {
-			return nil, err
+// blossomUploadData uploads raw bytes to a Blossom server (BUD-02 PUT /upload),
+// authorizing the given sha256 hash, and returns the resulting blob descriptor.
+func blossomUploadData(ctx context.Context, sk, server string, data []byte, contentType, hash string) (*blossom.BlobDescriptor, error) {
+	req, err := http.NewRequestWithContext(ctx, "PUT", normalizeServer(server)+"/upload", bytes.NewReader(data))
+	if err != nil {
+		return nil, err
+	}
+	auth, err := blossomAuthHeader(sk, "upload", hash)
+	if err != nil {
+		return nil, err
+	}
+	if contentType == "" {
+		contentType = "application/octet-stream"
+	}
+	req.Header.Set("Content-Type", contentType)
+	req.Header.Set("Authorization", auth)
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	b, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode >= 300 {
+		msg := strings.TrimSpace(resp.Header.Get("X-Reason"))
+		if msg == "" {
+			msg = strings.TrimSpace(string(b))
 		}
-		name := hash
+		return nil, fmt.Errorf("status %d: %s", resp.StatusCode, msg)
+	}
+	var bd blossom.BlobDescriptor
+	if err := json.Unmarshal(b, &bd); err != nil {
+		return nil, err
+	}
+	return &bd, nil
+}
+
+// fetchAndHash downloads the source URL and returns its bytes, content type and
+// the sha256 of the actual bytes (which can differ from the hash in the URL when
+// the source server is not content-addressed).
+func fetchAndHash(ctx context.Context, sourceURL string) (data []byte, contentType, hash string, err error) {
+	data, contentType, err = httpGetBytes(ctx, sourceURL)
+	if err != nil {
+		return nil, "", "", err
+	}
+	sum := sha256.Sum256(data)
+	return data, contentType, hex.EncodeToString(sum[:]), nil
+}
+
+// mirrorTo replicates the blob at sourceURL into the destination server. Blossom
+// destinations first try the efficient BUD-04 /mirror endpoint; if that fails
+// (e.g. the source is not content-addressed, so the dest cannot verify the URL
+// hash) the blob is downloaded and re-uploaded under its real sha256. NIP-96
+// destinations have no server-side mirror, so they always download and re-upload.
+//
+// has reports whether the destination already holds a given sha256 (nil when not
+// diffing). When the blob has to be downloaded to learn its real hash, that hash
+// is checked with has: if present the upload is skipped and skipped=true is
+// returned. This catches sources that advertise a different hash than the bytes
+// they serve (so the cheap listing-hash diff cannot match).
+func mirrorTo(ctx context.Context, dest fileServer, sk, sourceURL, hash string, has func(string) bool) (bd *blossom.BlobDescriptor, skipped bool, err error) {
+	if dest.Type == typeNIP96 {
+		data, ct, real, err := fetchAndHash(ctx, sourceURL)
+		if err != nil {
+			return nil, false, err
+		}
+		if has != nil && has(real) {
+			return nil, true, nil
+		}
+		name := real
 		if exts, _ := mime.ExtensionsByType(ct); len(exts) > 0 {
 			name += exts[0]
 		}
 		client := &nip96Client{sk: sk, server: dest.URL}
-		return client.uploadData(ctx, name, ct, data)
+		bd, err := client.uploadData(ctx, name, ct, data)
+		return bd, false, err
 	}
-	return mirrorBlob(ctx, sk, dest.URL, sourceURL, hash)
+	bd, err = mirrorBlob(ctx, sk, dest.URL, sourceURL, hash)
+	if err == nil {
+		return bd, false, nil
+	}
+	// Fallback: download the blob ourselves, compute its real hash, and upload
+	// the bytes directly (unless the destination already has that hash).
+	data, ct, real, ferr := fetchAndHash(ctx, sourceURL)
+	if ferr != nil {
+		return nil, false, err
+	}
+	if has != nil && has(real) {
+		return nil, true, nil
+	}
+	bd, err = blossomUploadData(ctx, sk, dest.URL, data, ct, real)
+	return bd, false, err
+}
+
+// newDestChecker returns a function reporting whether a sha256 already exists on
+// the destination. Blossom servers are probed per-hash with a HEAD request (their
+// list can be capped server-side); NIP-96 servers are listed once (their listing
+// is fully paginated) and the result cached in a set.
+func newDestChecker(ctx context.Context, cfg *Config, server fileServer) (func(string) bool, error) {
+	if server.Type == typeNIP96 {
+		client, err := newMediaClient(cfg, server)
+		if err != nil {
+			return nil, err
+		}
+		bds, err := client.List(ctx)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "%s: cannot list existing blobs: %v\n", server.URL, err)
+			return func(string) bool { return false }, nil
+		}
+		set := make(map[string]bool, len(bds))
+		for _, d := range bds {
+			set[d.SHA256] = true
+		}
+		return func(h string) bool { return set[h] }, nil
+	}
+	return func(h string) bool { return blossomHas(ctx, server.URL, h) }, nil
+}
+
+// blossomHas reports whether server holds the blob with the given sha256, via a
+// HEAD request (BUD-01 GET/HEAD /<sha256>).
+func blossomHas(ctx context.Context, server, hash string) bool {
+	req, err := http.NewRequestWithContext(ctx, "HEAD", normalizeServer(server)+"/"+hash, nil)
+	if err != nil {
+		return false
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return false
+	}
+	resp.Body.Close()
+	return resp.StatusCode < 300
 }
 
 // tagValue returns the value of the first tag with the given key, or "".
@@ -727,109 +841,251 @@ func nip96APIURL(ctx context.Context, server string) (string, error) {
 	return strings.TrimSuffix(cfg.APIURL, "/"), nil
 }
 
-func doFileMirror(cCtx *cli.Context) error {
-	all := cCtx.Bool("all")
-	if cCtx.Args().Len() == 0 && !all {
-		return cli.ShowSubcommandHelp(cCtx)
-	}
-	cfg := cCtx.App.Metadata["config"].(*Config)
-	servers, err := fileServers(cCtx, cfg)
+// mirrorFromSource enumerates every blob the user owns on the source server and
+// mirrors each into the destination server(s). When diff is true, blobs already
+// present on a destination (matched by sha256) are skipped.
+func mirrorFromSource(ctx context.Context, cCtx *cli.Context, cfg *Config, servers []fileServer, sk string, source fileServer, diff bool) error {
+	srcClient, err := newMediaClient(cfg, source)
 	if err != nil {
 		return err
 	}
-	sk, _, err := getSkAndPub(cfg)
+	bds, err := srcClient.List(ctx)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to list blobs on %s: %w", source.URL, err)
 	}
-	from := cCtx.String("from")
-
-	// --all: enumerate every blob of yours on the source server and mirror each
-	// one into the destination server(s). The source may be Blossom (default)
-	// or NIP-96 (--nip96, or a nip96+ prefix on --from).
-	if all {
-		if from == "" {
-			return errors.New("--all needs --from <source server>")
-		}
-		ctx := context.Background()
-		source := parseFileServer(from)
-		if cCtx.Bool("nip96") {
-			source.Type = typeNIP96
-		}
-		srcClient, err := newMediaClient(cfg, source)
-		if err != nil {
-			return err
-		}
-		bds, err := srcClient.List(ctx)
-		if err != nil {
-			return fmt.Errorf("failed to list blobs on %s: %w", source.URL, err)
-		}
-		if len(bds) == 0 {
-			fmt.Fprintf(os.Stderr, "no blobs found on %s\n", source.URL)
-			return nil
-		}
-		var mirrored, failed int
-		for _, blob := range bds {
-			sourceURL := blob.URL
-			if sourceURL == "" {
-				sourceURL = normalizeServer(source.URL) + "/" + blob.SHA256
-			}
-			for _, server := range servers {
-				bd, err := mirrorTo(ctx, server, sk, sourceURL, blob.SHA256)
-				if err != nil {
-					failed++
-					fmt.Fprintf(os.Stderr, "%s: %s: %v\n", server.URL, blob.SHA256, err)
-					continue
-				}
-				mirrored++
-				if cCtx.Bool("json") {
-					fmt.Println(bd.String())
-				} else {
-					fmt.Println(bd.URL)
-				}
-			}
-		}
-		fmt.Fprintf(os.Stderr, "mirrored %d, failed %d (of %d blobs)\n", mirrored, failed, len(bds))
-		if mirrored == 0 {
-			return errors.New("cannot mirror")
-		}
+	if len(bds) == 0 {
+		fmt.Fprintf(os.Stderr, "no blobs found on %s\n", source.URL)
 		return nil
 	}
 
-	src := cCtx.Args().First()
-	var sourceURL, hash string
-	if nostr.IsValid32ByteHex(src) {
-		if from == "" {
-			return errors.New("a bare hash needs --from <source server>")
-		}
-		hash = src
-		sourceURL = normalizeServer(parseFileServer(from).URL) + "/" + hash
-	} else {
-		sourceURL = src
-		hash = hashFromURL(src)
-		if !nostr.IsValid32ByteHex(hash) {
-			return fmt.Errorf("cannot derive sha256 from %q", src)
+	// For a diff mirror, build a per-destination existence checker. Blossom
+	// listings can be capped server-side (e.g. 100 entries), so checking each
+	// hash with a HEAD request is more reliable than diffing against a list.
+	checkers := map[string]func(string) bool{}
+	if diff {
+		for _, server := range servers {
+			has, err := newDestChecker(ctx, cfg, server)
+			if err != nil {
+				return err
+			}
+			checkers[server.URL] = has
 		}
 	}
 
-	ctx := context.Background()
-	var mirrored int
-	for _, server := range servers {
-		bd, err := mirrorTo(ctx, server, sk, sourceURL, hash)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "%s: %v\n", server.URL, err)
-			continue
+	dryRun := cCtx.Bool("dry-run")
+	var mirrored, skipped, failed, planned int
+	var plannedSize int64
+	for _, blob := range bds {
+		sourceURL := blob.URL
+		if sourceURL == "" {
+			sourceURL = normalizeServer(source.URL) + "/" + blob.SHA256
 		}
-		mirrored++
-		if cCtx.Bool("json") {
-			fmt.Println(bd.String())
-		} else {
-			fmt.Println(bd.URL)
+		// The destination authorizes (and verifies) the sha256 of the bytes it
+		// fetches from sourceURL, so derive the hash from the URL rather than
+		// trusting the listing's sha256 (which may differ, e.g. when the server
+		// reports the original hash but serves a transformed blob).
+		hash := hashFromURL(sourceURL)
+		if !nostr.IsValid32ByteHex(hash) {
+			hash = blob.SHA256
+		}
+		for _, server := range servers {
+			has := checkers[server.URL]
+			if has != nil && (has(blob.SHA256) || has(hash)) {
+				skipped++
+				continue
+			}
+			if dryRun {
+				planned++
+				plannedSize += int64(blob.Size)
+				fmt.Printf("%s\t%s\t%s\n", server.URL, hash, humanBytes(int64(blob.Size)))
+				continue
+			}
+			bd, skip, err := mirrorTo(ctx, server, sk, sourceURL, hash, has)
+			if err != nil {
+				failed++
+				fmt.Fprintf(os.Stderr, "%s: %s: %v\n", server.URL, hash, err)
+				continue
+			}
+			if skip {
+				skipped++
+				continue
+			}
+			mirrored++
+			if cCtx.Bool("json") {
+				fmt.Println(bd.String())
+			} else {
+				fmt.Println(bd.URL)
+			}
+		}
+	}
+	if dryRun {
+		fmt.Fprintf(os.Stderr, "would mirror %d transfer(s), ~%s (skipped %d already present)\n", planned, humanBytes(plannedSize), skipped)
+		return nil
+	}
+	if diff {
+		fmt.Fprintf(os.Stderr, "mirrored %d, skipped %d, failed %d (of %d blobs)\n", mirrored, skipped, failed, len(bds))
+	} else {
+		fmt.Fprintf(os.Stderr, "mirrored %d, failed %d (of %d blobs)\n", mirrored, failed, len(bds))
+	}
+	if mirrored == 0 && failed > 0 {
+		return errors.New("cannot mirror")
+	}
+	return nil
+}
+
+// sourceBlob identifies a single blob to mirror: its public URL and sha256.
+type sourceBlob struct {
+	url  string
+	hash string
+}
+
+// resolveDests returns the destination servers: the positional URL arguments if
+// any were given, otherwise the -s/config servers.
+func resolveDests(cCtx *cli.Context, cfg *Config, destArgs []string) ([]fileServer, error) {
+	if len(destArgs) > 0 {
+		dests := make([]fileServer, len(destArgs))
+		for i, d := range destArgs {
+			dests[i] = parseFileServer(d)
+		}
+		return dests, nil
+	}
+	return fileServers(cCtx, cfg)
+}
+
+// mirrorBlobs mirrors each source blob into every destination server.
+func mirrorBlobs(ctx context.Context, cCtx *cli.Context, dests []fileServer, sk string, sources []sourceBlob) error {
+	if cCtx.Bool("dry-run") {
+		var planned int
+		var total int64
+		for _, s := range sources {
+			size := headSize(ctx, s.url)
+			for _, server := range dests {
+				planned++
+				if size >= 0 {
+					total += size
+				}
+				fmt.Printf("%s\t%s\t%s\n", server.URL, s.hash, humanBytes(size))
+			}
+		}
+		fmt.Fprintf(os.Stderr, "would mirror %d transfer(s), ~%s\n", planned, humanBytes(total))
+		return nil
+	}
+	var mirrored int
+	for _, s := range sources {
+		for _, server := range dests {
+			bd, _, err := mirrorTo(ctx, server, sk, s.url, s.hash, nil)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "%s: %s: %v\n", server.URL, s.hash, err)
+				continue
+			}
+			mirrored++
+			if cCtx.Bool("json") {
+				fmt.Println(bd.String())
+			} else {
+				fmt.Println(bd.URL)
+			}
 		}
 	}
 	if mirrored == 0 {
 		return errors.New("cannot mirror")
 	}
 	return nil
+}
+
+// headSize returns the Content-Length of url via a HEAD request, or -1 if
+// unknown.
+func headSize(ctx context.Context, url string) int64 {
+	req, err := http.NewRequestWithContext(ctx, "HEAD", url, nil)
+	if err != nil {
+		return -1
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return -1
+	}
+	resp.Body.Close()
+	if resp.StatusCode >= 300 {
+		return -1
+	}
+	return resp.ContentLength
+}
+
+// humanBytes formats a byte count for display, or "?" when unknown (negative).
+func humanBytes(n int64) string {
+	if n < 0 {
+		return "?"
+	}
+	const unit = 1024
+	if n < unit {
+		return fmt.Sprintf("%d B", n)
+	}
+	div, exp := int64(unit), 0
+	for m := n / unit; m >= unit; m /= unit {
+		div *= unit
+		exp++
+	}
+	return fmt.Sprintf("%.1f %cB", float64(n)/float64(div), "KMGTPE"[exp])
+}
+
+func doFileMirror(cCtx *cli.Context) error {
+	cfg := cCtx.App.Metadata["config"].(*Config)
+	sk, _, err := getSkAndPub(cfg)
+	if err != nil {
+		return err
+	}
+	from := cCtx.String("from")
+	ctx := context.Background()
+	args := cCtx.Args().Slice()
+
+	// Source given via --from. Positional args (if any) are destination servers
+	// (URLs) and/or specific blob hashes (sha256) to mirror. With neither, every
+	// blob is mirrored (--all) or only those missing on each destination (diff,
+	// the default). The source may be Blossom or NIP-96 (--nip96 / nip96+ prefix).
+	if from != "" {
+		source := parseFileServer(from)
+		if cCtx.Bool("nip96") {
+			source.Type = typeNIP96
+		}
+		var hashes, destArgs []string
+		for _, a := range args {
+			if nostr.IsValid32ByteHex(a) {
+				hashes = append(hashes, a)
+			} else {
+				destArgs = append(destArgs, a)
+			}
+		}
+		dests, err := resolveDests(cCtx, cfg, destArgs)
+		if err != nil {
+			return err
+		}
+		if len(hashes) > 0 {
+			sources := make([]sourceBlob, len(hashes))
+			for i, h := range hashes {
+				sources[i] = sourceBlob{url: normalizeServer(source.URL) + "/" + h, hash: h}
+			}
+			return mirrorBlobs(ctx, cCtx, dests, sk, sources)
+		}
+		return mirrorFromSource(ctx, cCtx, cfg, dests, sk, source, !cCtx.Bool("all"))
+	}
+
+	// No --from: each positional <source-url> is mirrored into the -s/config
+	// destination server(s).
+	if len(args) == 0 {
+		return errors.New("mirror needs a <source-url> argument, or --from <source server>")
+	}
+	dests, err := fileServers(cCtx, cfg)
+	if err != nil {
+		return err
+	}
+	sources := make([]sourceBlob, len(args))
+	for i, src := range args {
+		hash := hashFromURL(src)
+		if !nostr.IsValid32ByteHex(hash) {
+			return fmt.Errorf("cannot derive sha256 from %q (use --from <server> for a bare hash)", src)
+		}
+		sources[i] = sourceBlob{url: src, hash: hash}
+	}
+	return mirrorBlobs(ctx, cCtx, dests, sk, sources)
 }
 
 // fileCommand returns the "file" parent command with its subcommands. It
@@ -896,14 +1152,15 @@ func fileCommand() *cli.Command {
 				Name: "mirror",
 				Flags: []cli.Flag{
 					serverFlag,
-					&cli.StringFlag{Name: "from", Usage: "source server (required with --all or a bare hash)"},
-					&cli.BoolFlag{Name: "all", Usage: "mirror all your blobs from --from into the dest server(s)"},
-					&cli.BoolFlag{Name: "nip96", Usage: "treat --from as a NIP-96 server when listing with --all"},
+					&cli.StringFlag{Name: "from", Usage: "source server; positional args then become dest servers and/or sha256s to mirror"},
+					&cli.BoolFlag{Name: "all", Usage: "with --from, mirror all blobs (default: only those missing on the dest)"},
+					&cli.BoolFlag{Name: "nip96", Usage: "treat --from as a NIP-96 server when listing"},
+					&cli.BoolFlag{Name: "dry-run", Aliases: []string{"n"}, Usage: "list what would be mirrored and the total size, without transferring"},
 					&cli.BoolFlag{Name: "json", Usage: "output JSON blob descriptor"},
 				},
 				Usage:     "mirror blob(s) into the media server(s)",
-				UsageText: "algia file mirror [-s <dest>...] <source-url> | --from <src> <sha256> | --all --from <src>",
-				ArgsUsage: "[source-url|sha256]",
+				UsageText: "algia file mirror <source-url> [-s <dest>...] | --from <src> [<dest-url>... | <sha256>...] [--all]",
+				ArgsUsage: "[source-url | dest-url... | sha256...]",
 				Action:    doFileMirror,
 			},
 		},

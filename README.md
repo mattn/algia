@@ -104,10 +104,14 @@ algia file mirror <blob-url>          # mirror a blob into your server(s)
 # upload to a specific NIP-96 server, overriding config
 algia file upload -s nip96+https://nostrcheck.me ./photo.png
 
-# bulk mirror every blob you own from another server into yours
-algia file mirror --all --from https://other.blossom.server
+# mirror only the blobs missing on the destination from another server (diff)
+algia file mirror --from https://other.blossom.server https://your.blossom.server
+# mirror every blob you own, regardless of what is already there
+algia file mirror --all --from https://other.blossom.server https://your.blossom.server
+# the destination may also come from -s/config instead of a positional arg
+algia file mirror --from https://other.blossom.server
 # the source can also be a NIP-96 server (e.g. nostrcheck.me)
-algia file mirror --all --nip96 --from https://nostrcheck.me
+algia file mirror --nip96 --from https://nostrcheck.me
 ```
 
 If you want to zap via Nostr Wallet Connect, please add `nwc-uri` which are provided from <https://nwc.getalby.com/apps/new?c=Algia>
