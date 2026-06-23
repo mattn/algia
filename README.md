@@ -29,7 +29,7 @@ COMMANDS:
    bm            bookmarks (list/post)
    list          lists (show/add/remove/delete)
    channel       public chat channels (create/list/timeline/stream/post)
-   blossom       Blossom media servers (upload/list/get/delete/check)
+   blossom       Blossom media servers (upload/list/get/delete/check/mirror)
    profile       show profile
    powa          post ぽわ〜
    puru          post ぷる
@@ -91,6 +91,12 @@ algia blossom list                      # list your blobs
 algia blossom get <sha256> -o out.png   # download a blob
 algia blossom check <sha256>            # check existence per server
 algia blossom delete <sha256>           # delete a blob
+algia blossom mirror <blob-url>         # mirror a blob into your server(s) (BUD-04)
+
+# bulk mirror every blob you own from another server into yours
+algia blossom mirror --all --from https://other.blossom.server
+# the source can also be a NIP-96 server (e.g. nostrcheck.me)
+algia blossom mirror --all --nip96 --from https://nostrcheck.me
 ```
 
 If you want to zap via Nostr Wallet Connect, please add `nwc-uri` which are provided from <https://nwc.getalby.com/apps/new?c=Algia>
