@@ -64,3 +64,29 @@ func callBookmarks(arg *bookmarksArg) ([]*nostr.Event, error) {
 func doBMPost(cCtx *cli.Context) error {
 	return errors.New("Not Implemented")
 }
+
+// bmCommand returns the "bm" parent command with its subcommands.
+func bmCommand() *cli.Command {
+	return &cli.Command{
+		Name:  "bm",
+		Usage: "bookmarks (NIP-51 kind 10003)",
+		Subcommands: []*cli.Command{
+			{
+				Name: "list",
+				Flags: []cli.Flag{
+					&cli.BoolFlag{Name: "json", Usage: "output JSON"},
+				},
+				Usage:     "show bookmarks",
+				UsageText: "algia bm list",
+				Action:    doBMList,
+			},
+			{
+				Name:      "post",
+				Usage:     "post bookmark",
+				UsageText: "algia bm post [note]",
+				ArgsUsage: "[note]",
+				Action:    doBMPost,
+			},
+		},
+	}
+}

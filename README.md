@@ -25,9 +25,11 @@ COMMANDS:
    unlike, L     unlike the note
    delete, d     delete the note
    search, s     search notes
-   dm-list       show DM list
-   dm-timeline   show DM timeline
-   dm-post       post new note
+   dm            direct messages (list/timeline/post)
+   bm            bookmarks (list/post)
+   list          lists (show/add/remove/delete)
+   channel       public chat channels (create/list/timeline/stream/post)
+   blossom       Blossom media servers (upload/list/get/delete/check)
    profile       show profile
    powa          post ぽわ〜
    puru          post ぷる

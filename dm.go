@@ -436,3 +436,47 @@ func doDMPost(cCtx *cli.Context) error {
 	}
 	return nil
 }
+
+// dmCommand returns the "dm" parent command with its subcommands.
+func dmCommand() *cli.Command {
+	return &cli.Command{
+		Name:  "dm",
+		Usage: "direct messages (NIP-17/NIP-04)",
+		Subcommands: []*cli.Command{
+			{
+				Name: "list",
+				Flags: []cli.Flag{
+					&cli.BoolFlag{Name: "json", Usage: "output JSON"},
+				},
+				Usage:     "show DM list",
+				UsageText: "algia dm list",
+				Action:    doDMList,
+			},
+			{
+				Name: "timeline",
+				Flags: []cli.Flag{
+					&cli.IntFlag{Name: "n", Value: 30, Usage: "number of items"},
+					&cli.StringFlag{Name: "u", Value: "", Usage: "DM user", Required: true},
+					&cli.BoolFlag{Name: "json", Usage: "output JSON"},
+					&cli.BoolFlag{Name: "extra", Usage: "extra JSON"},
+				},
+				Usage:     "show DM timeline",
+				UsageText: "algia dm timeline -u <user>",
+				Action:    doDMTimeline,
+			},
+			{
+				Name: "post",
+				Flags: []cli.Flag{
+					&cli.StringFlag{Name: "u", Value: "", Usage: "DM user", Required: true},
+					&cli.BoolFlag{Name: "stdin"},
+					&cli.StringFlag{Name: "sensitive"},
+					&cli.BoolFlag{Name: "nip04"},
+				},
+				Usage:     "post new DM note",
+				UsageText: "algia dm post -u <user> [note text]",
+				ArgsUsage: "[note text]",
+				Action:    doDMPost,
+			},
+		},
+	}
+}

@@ -732,3 +732,58 @@ func itemToTag(item string, kind int) nostr.Tag {
 	}
 	return nil
 }
+
+// listCommand returns the "list" parent command. Running "algia list" with no
+// subcommand shows all lists; subcommands operate on a specific list.
+func listCommand() *cli.Command {
+	kindFlag := func() cli.Flag {
+		return &cli.IntFlag{Name: "kind", Usage: "list kind (e.g. 10002 for relay list, 30000 for follow set)"}
+	}
+	return &cli.Command{
+		Name:  "list",
+		Usage: "show all lists",
+		Flags: []cli.Flag{
+			&cli.BoolFlag{Name: "json", Usage: "output JSON"},
+			&cli.IntFlag{Name: "kind", Usage: "filter by kind (e.g. 30000)"},
+		},
+		UsageText: "algia list",
+		Action:    doList,
+		Subcommands: []*cli.Command{
+			{
+				Name: "show",
+				Flags: []cli.Flag{
+					&cli.BoolFlag{Name: "json", Usage: "output JSON"},
+					kindFlag(),
+				},
+				Usage:     "show items in a list",
+				UsageText: "algia list show [--kind <kind>] [<name>]",
+				ArgsUsage: "[<name>]",
+				Action:    doListShow,
+			},
+			{
+				Name:      "add",
+				Flags:     []cli.Flag{kindFlag()},
+				Usage:     "add items to a list",
+				UsageText: "algia list add [--kind <kind>] [<name>] <item> [item...]",
+				ArgsUsage: "[<name>] <item> [item...]",
+				Action:    doListAdd,
+			},
+			{
+				Name:      "remove",
+				Flags:     []cli.Flag{kindFlag()},
+				Usage:     "remove items from a list",
+				UsageText: "algia list remove [--kind <kind>] [<name>] <item> [item...]",
+				ArgsUsage: "[<name>] <item> [item...]",
+				Action:    doListRemove,
+			},
+			{
+				Name:      "delete",
+				Flags:     []cli.Flag{kindFlag()},
+				Usage:     "delete a list",
+				UsageText: "algia list delete [--kind <kind>] [<name>]",
+				ArgsUsage: "[<name>]",
+				Action:    doListDelete,
+			},
+		},
+	}
+}

@@ -444,3 +444,75 @@ func doChannelPost(cCtx *cli.Context) error {
 	}
 	return nil
 }
+
+// channelCommand returns the "channel" parent command with its subcommands (NIP-28).
+func channelCommand() *cli.Command {
+	return &cli.Command{
+		Name:  "channel",
+		Usage: "public chat channels (NIP-28)",
+		Subcommands: []*cli.Command{
+			{
+				Name: "create",
+				Flags: []cli.Flag{
+					&cli.StringFlag{Name: "name", Required: true, Usage: "channel name"},
+					&cli.StringFlag{Name: "about", Usage: "channel description"},
+					&cli.StringFlag{Name: "picture", Usage: "channel picture URL"},
+				},
+				Usage:     "create a new channel (NIP-28 kind 40)",
+				UsageText: "algia channel create --name [name] [--about ...] [--picture ...]",
+				Action:    doChannelCreate,
+			},
+			{
+				Name: "list",
+				Flags: []cli.Flag{
+					&cli.BoolFlag{Name: "json", Usage: "output JSON"},
+					&cli.BoolFlag{Name: "all", Usage: "list channels from all authors, not just mine"},
+					&cli.IntFlag{Name: "n", Value: 30, Usage: "number of items"},
+				},
+				Usage:     "list channels (NIP-28 kind 40)",
+				UsageText: "algia channel list",
+				Action:    doChannelList,
+			},
+			{
+				Name: "timeline",
+				Flags: []cli.Flag{
+					&cli.StringFlag{Name: "id", Required: true, Usage: "channel id (note/nevent/hex of the kind 40 event)"},
+					&cli.IntFlag{Name: "n", Value: 30, Usage: "number of items"},
+					&cli.BoolFlag{Name: "json", Usage: "output JSON"},
+					&cli.BoolFlag{Name: "extra", Usage: "extra JSON"},
+				},
+				Usage:     "show channel timeline (NIP-28 kind 42)",
+				UsageText: "algia channel timeline --id [channel id]",
+				Action:    doChannelTimeline,
+			},
+			{
+				Name: "stream",
+				Flags: []cli.Flag{
+					&cli.StringFlag{Name: "id", Required: true, Usage: "channel id (note/nevent/hex of the kind 40 event)"},
+					&cli.BoolFlag{Name: "json", Usage: "output JSON"},
+				},
+				Usage:     "stream new channel messages (NIP-28 kind 42)",
+				UsageText: "algia channel stream --id [channel id]",
+				Action:    doChannelStream,
+			},
+			{
+				Name: "post",
+				Flags: []cli.Flag{
+					&cli.StringFlag{Name: "id", Required: true, Usage: "channel id (note/nevent/hex of the kind 40 event)"},
+					&cli.StringFlag{Name: "reply", Usage: "reply target message id (note/nevent/hex of a kind 42 event)"},
+					&cli.StringSliceFlag{Name: "u", Usage: "users to mention (npub/nprofile/hex/NIP-05)"},
+					&cli.BoolFlag{Name: "stdin"},
+					&cli.StringFlag{Name: "sensitive"},
+					&cli.StringSliceFlag{Name: "emoji"},
+					&cli.StringFlag{Name: "geohash"},
+					&cli.StringSliceFlag{Name: "tag", Aliases: []string{"t"}, Usage: "tag (key=value1;value2)"},
+					&cli.Int64Flag{Name: "created-at", Usage: "override created_at (unix timestamp)"},
+				},
+				Usage:     "post a message to a channel (NIP-28 kind 42)",
+				UsageText: "algia channel post --id [channel id] [--reply <message id>] [-u <user>...] [message]",
+				ArgsUsage: "[message]",
+				Action:    doChannelPost,
+			},
+		},
+	}
+}
