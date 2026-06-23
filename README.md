@@ -29,7 +29,7 @@ COMMANDS:
    bm            bookmarks (list/post)
    list          lists (show/add/remove/delete)
    channel       public chat channels (create/list/timeline/stream/post)
-   blossom       Blossom media servers (upload/list/get/delete/check/mirror)
+   file          Blossom/NIP-96 media servers (upload/list/get/delete/check/mirror)
    profile       show profile
    powa          post ぽわ〜
    puru          post ぷる
@@ -70,10 +70,15 @@ Minimal configuration. Need to be at ~/.config/algia/config.json
 }
 ```
 
-If you want to operate [Blossom](https://github.com/hzrd149/blossom) media servers,
-add `blossom-servers`. Uploads, deletes and checks are mirrored to every listed
-server; downloads try them in order. Override per-invocation with `--server`/`-s`
+If you want to operate media servers ([Blossom](https://github.com/hzrd149/blossom)
+or [NIP-96](https://github.com/nostr-protocol/nips/blob/master/96.md)), add
+`file-servers`. Uploads, deletes and checks are applied to every listed server;
+downloads try them in order. Override per-invocation with `--server`/`-s`
 (repeatable).
+
+Each entry is either a bare URL (treated as Blossom) or an object with an
+explicit `type` of `"blossom"` or `"nip96"`. A URL may also carry a `nip96+` /
+`blossom+` prefix to pick the protocol inline (handy for `--server`).
 
 ```json
 {
@@ -81,22 +86,28 @@ server; downloads try them in order. Override per-invocation with `--server`/`-s
    ...
   },
   "privatekey": "nsecXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX",
-  "blossom-servers": ["https://blossom.band", "https://cdn.nostrcheck.me"]
+  "file-servers": [
+    "https://blossom.band",
+    { "url": "https://nostrcheck.me", "type": "nip96" }
+  ]
 }
 ```
 
 ```
-algia blossom upload ./photo.png       # -> prints the blob URL(s)
-algia blossom list                      # list your blobs
-algia blossom get <sha256> -o out.png   # download a blob
-algia blossom check <sha256>            # check existence per server
-algia blossom delete <sha256>           # delete a blob
-algia blossom mirror <blob-url>         # mirror a blob into your server(s) (BUD-04)
+algia file upload ./photo.png        # -> prints the blob URL(s)
+algia file list                       # list your blobs
+algia file get <sha256> -o out.png    # download a blob
+algia file check <sha256>             # check existence per server
+algia file delete <sha256>            # delete a blob
+algia file mirror <blob-url>          # mirror a blob into your server(s)
+
+# upload to a specific NIP-96 server, overriding config
+algia file upload -s nip96+https://nostrcheck.me ./photo.png
 
 # bulk mirror every blob you own from another server into yours
-algia blossom mirror --all --from https://other.blossom.server
+algia file mirror --all --from https://other.blossom.server
 # the source can also be a NIP-96 server (e.g. nostrcheck.me)
-algia blossom mirror --all --nip96 --from https://nostrcheck.me
+algia file mirror --all --nip96 --from https://nostrcheck.me
 ```
 
 If you want to zap via Nostr Wallet Connect, please add `nwc-uri` which are provided from <https://nwc.getalby.com/apps/new?c=Algia>
