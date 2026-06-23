@@ -56,6 +56,7 @@ type Config struct {
 	Updated        time.Time         `json:"updated"`
 	Emojis         map[string]string `json:"emojis"`
 	NwcURI         string            `json:"nwc-uri"`
+	BlossomServers []string          `json:"blossom-servers"`
 	profiles       map[string]Profile
 	pool           *nostr.SimplePool
 	profileChanged bool
@@ -1501,6 +1502,7 @@ func main() {
 				HelpName:  "report",
 				Action:    doReport,
 			},
+			blossomCommand(),
 		},
 		Before: func(cCtx *cli.Context) error {
 			switch cCtx.Args().Get(0) {

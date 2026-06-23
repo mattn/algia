@@ -68,6 +68,29 @@ Minimal configuration. Need to be at ~/.config/algia/config.json
 }
 ```
 
+If you want to operate [Blossom](https://github.com/hzrd149/blossom) media servers,
+add `blossom-servers`. Uploads, deletes and checks are mirrored to every listed
+server; downloads try them in order. Override per-invocation with `--server`/`-s`
+(repeatable).
+
+```json
+{
+  "relays": {
+   ...
+  },
+  "privatekey": "nsecXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX",
+  "blossom-servers": ["https://blossom.band", "https://cdn.nostrcheck.me"]
+}
+```
+
+```
+algia blossom upload ./photo.png       # -> prints the blob URL(s)
+algia blossom list                      # list your blobs
+algia blossom get <sha256> -o out.png   # download a blob
+algia blossom check <sha256>            # check existence per server
+algia blossom delete <sha256>           # delete a blob
+```
+
 If you want to zap via Nostr Wallet Connect, please add `nwc-uri` which are provided from <https://nwc.getalby.com/apps/new?c=Algia>
 
 ```json
