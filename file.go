@@ -117,6 +117,39 @@ func newMediaClient(cfg *Config, fs fileServer) (mediaClient, error) {
 	return &blossomMediaClient{c: blossom.NewClient(fs.URL, signer)}, nil
 }
 
+// serverClient pairs a configured server with its ready-to-use client.
+type serverClient struct {
+	server fileServer
+	client mediaClient
+}
+
+// resolveClients resolves the target servers (-s flag or config) and builds a
+// client for each, so subcommands can just range over the result.
+func resolveClients(cCtx *cli.Context, cfg *Config) ([]serverClient, error) {
+	servers, err := fileServers(cCtx, cfg)
+	if err != nil {
+		return nil, err
+	}
+	scs := make([]serverClient, 0, len(servers))
+	for _, s := range servers {
+		client, err := newMediaClient(cfg, s)
+		if err != nil {
+			return nil, err
+		}
+		scs = append(scs, serverClient{server: s, client: client})
+	}
+	return scs, nil
+}
+
+// printBlob writes a blob descriptor: JSON when --json is set, else its URL.
+func printBlob(cCtx *cli.Context, bd *blossom.BlobDescriptor) {
+	if cCtx.Bool("json") {
+		fmt.Println(bd.String())
+	} else {
+		fmt.Println(bd.URL)
+	}
+}
+
 // blossomMediaClient adapts blossom.Client to the mediaClient interface.
 type blossomMediaClient struct {
 	c *blossom.Client
@@ -192,25 +225,16 @@ func (c *nip96Client) uploadData(ctx context.Context, filename, contentType stri
 	}
 
 	body := buf.Bytes()
-	req, err := http.NewRequestWithContext(ctx, "POST", apiURL, bytes.NewReader(body))
-	if err != nil {
-		return nil, err
-	}
 	auth, err := nip98Header(c.sk, apiURL, "POST", body)
 	if err != nil {
 		return nil, err
 	}
-	req.Header.Set("Content-Type", w.FormDataContentType())
-	req.Header.Set("Authorization", auth)
-
-	resp, err := http.DefaultClient.Do(req)
+	b, _, err := httpDo(ctx, "POST", apiURL, body, map[string]string{
+		"Content-Type":  w.FormDataContentType(),
+		"Authorization": auth,
+	})
 	if err != nil {
 		return nil, err
-	}
-	defer resp.Body.Close()
-	b, _ := io.ReadAll(resp.Body)
-	if resp.StatusCode >= 300 {
-		return nil, fmt.Errorf("upload status %d: %s", resp.StatusCode, strings.TrimSpace(string(b)))
 	}
 
 	var ur struct {
@@ -243,24 +267,13 @@ func (c *nip96Client) List(ctx context.Context) ([]blossom.BlobDescriptor, error
 	const count = 100
 	for page := 0; ; page++ {
 		pageURL := fmt.Sprintf("%s?page=%d&count=%d", apiURL, page, count)
-		req, err := http.NewRequestWithContext(ctx, "GET", pageURL, nil)
-		if err != nil {
-			return nil, err
-		}
 		auth, err := nip98Header(c.sk, pageURL, "GET", nil)
 		if err != nil {
 			return nil, err
 		}
-		req.Header.Set("Authorization", auth)
-
-		resp, err := http.DefaultClient.Do(req)
+		body, _, err := httpDo(ctx, "GET", pageURL, nil, map[string]string{"Authorization": auth})
 		if err != nil {
 			return nil, err
-		}
-		body, _ := io.ReadAll(resp.Body)
-		resp.Body.Close()
-		if resp.StatusCode >= 300 {
-			return nil, fmt.Errorf("list status %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
 		}
 
 		var lr struct {
@@ -312,25 +325,12 @@ func (c *nip96Client) Delete(ctx context.Context, hash string) error {
 		return fmt.Errorf("nip96 config: %w", err)
 	}
 	url := apiURL + "/" + hash
-	req, err := http.NewRequestWithContext(ctx, "DELETE", url, nil)
-	if err != nil {
-		return err
-	}
 	auth, err := nip98Header(c.sk, url, "DELETE", nil)
 	if err != nil {
 		return err
 	}
-	req.Header.Set("Authorization", auth)
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-	b, _ := io.ReadAll(resp.Body)
-	if resp.StatusCode >= 300 {
-		return fmt.Errorf("delete status %d: %s", resp.StatusCode, strings.TrimSpace(string(b)))
-	}
-	return nil
+	_, _, err = httpDo(ctx, "DELETE", url, nil, map[string]string{"Authorization": auth})
+	return err
 }
 
 func (c *nip96Client) Check(ctx context.Context, hash string) error {
@@ -377,25 +377,66 @@ func blobFromTags(tags nostr.Tags) blossom.BlobDescriptor {
 	return bd
 }
 
-// httpGetBytes performs a plain GET and returns the body and its content type.
-func httpGetBytes(ctx context.Context, url string) ([]byte, string, error) {
-	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+// statusError formats a non-2xx HTTP response, preferring the X-Reason header
+// (sent by Blossom servers) and falling back to the response body.
+func statusError(code int, header http.Header, body []byte) error {
+	msg := strings.TrimSpace(header.Get("X-Reason"))
+	if msg == "" {
+		msg = strings.TrimSpace(string(body))
+	}
+	return fmt.Errorf("status %d: %s", code, msg)
+}
+
+// httpDo builds a request with the given headers, executes it, reads the body
+// and turns a non-2xx status into a statusError. A nil body sends no payload.
+func httpDo(ctx context.Context, method, url string, body []byte, headers map[string]string) ([]byte, http.Header, error) {
+	var r io.Reader
+	if body != nil {
+		r = bytes.NewReader(body)
+	}
+	req, err := http.NewRequestWithContext(ctx, method, url, r)
 	if err != nil {
-		return nil, "", err
+		return nil, nil, err
+	}
+	for k, v := range headers {
+		req.Header.Set(k, v)
 	}
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		return nil, "", err
+		return nil, nil, err
 	}
 	defer resp.Body.Close()
 	b, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, "", err
+		return nil, nil, err
 	}
 	if resp.StatusCode >= 300 {
-		return nil, "", fmt.Errorf("status %d", resp.StatusCode)
+		return nil, resp.Header, statusError(resp.StatusCode, resp.Header, b)
 	}
-	return b, resp.Header.Get("Content-Type"), nil
+	return b, resp.Header, nil
+}
+
+// httpHead issues a HEAD request and returns the (body-closed) response.
+func httpHead(ctx context.Context, url string) (*http.Response, error) {
+	req, err := http.NewRequestWithContext(ctx, "HEAD", url, nil)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	resp.Body.Close()
+	return resp, nil
+}
+
+// httpGetBytes performs a plain GET and returns the body and its content type.
+func httpGetBytes(ctx context.Context, url string) ([]byte, string, error) {
+	b, header, err := httpDo(ctx, "GET", url, nil, nil)
+	if err != nil {
+		return nil, "", err
+	}
+	return b, header.Get("Content-Type"), nil
 }
 
 func doFileUpload(cCtx *cli.Context) error {
@@ -403,7 +444,7 @@ func doFileUpload(cCtx *cli.Context) error {
 		return cli.ShowSubcommandHelp(cCtx)
 	}
 	cfg := cCtx.App.Metadata["config"].(*Config)
-	servers, err := fileServers(cCtx, cfg)
+	clients, err := resolveClients(cCtx, cfg)
 	if err != nil {
 		return err
 	}
@@ -411,22 +452,14 @@ func doFileUpload(cCtx *cli.Context) error {
 	ctx := context.Background()
 	var uploaded int
 	for _, path := range cCtx.Args().Slice() {
-		for _, server := range servers {
-			client, err := newMediaClient(cfg, server)
+		for _, sc := range clients {
+			bd, err := sc.client.Upload(ctx, path)
 			if err != nil {
-				return err
-			}
-			bd, err := client.Upload(ctx, path)
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "%s: %s: %v\n", server.URL, path, err)
+				fmt.Fprintf(os.Stderr, "%s: %s: %v\n", sc.server.URL, path, err)
 				continue
 			}
 			uploaded++
-			if cCtx.Bool("json") {
-				fmt.Println(bd.String())
-			} else {
-				fmt.Println(bd.URL)
-			}
+			printBlob(cCtx, bd)
 		}
 	}
 	if uploaded == 0 {
@@ -437,20 +470,16 @@ func doFileUpload(cCtx *cli.Context) error {
 
 func doFileList(cCtx *cli.Context) error {
 	cfg := cCtx.App.Metadata["config"].(*Config)
-	servers, err := fileServers(cCtx, cfg)
+	clients, err := resolveClients(cCtx, cfg)
 	if err != nil {
 		return err
 	}
 
 	ctx := context.Background()
-	for _, server := range servers {
-		client, err := newMediaClient(cfg, server)
+	for _, sc := range clients {
+		bds, err := sc.client.List(ctx)
 		if err != nil {
-			return err
-		}
-		bds, err := client.List(ctx)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "%s: %v\n", server.URL, err)
+			fmt.Fprintf(os.Stderr, "%s: %v\n", sc.server.URL, err)
 			continue
 		}
 		if cCtx.Bool("json") {
@@ -473,7 +502,7 @@ func doFileGet(cCtx *cli.Context) error {
 		return cli.ShowSubcommandHelp(cCtx)
 	}
 	cfg := cCtx.App.Metadata["config"].(*Config)
-	servers, err := fileServers(cCtx, cfg)
+	clients, err := resolveClients(cCtx, cfg)
 	if err != nil {
 		return err
 	}
@@ -482,19 +511,15 @@ func doFileGet(cCtx *cli.Context) error {
 
 	ctx := context.Background()
 	var lastErr error
-	for _, server := range servers {
-		client, err := newMediaClient(cfg, server)
-		if err != nil {
-			return err
-		}
+	for _, sc := range clients {
 		if out != "" {
-			if err := client.DownloadToFile(ctx, hash, out); err != nil {
+			if err := sc.client.DownloadToFile(ctx, hash, out); err != nil {
 				lastErr = err
 				continue
 			}
 			return nil
 		}
-		b, err := client.Download(ctx, hash)
+		b, err := sc.client.Download(ctx, hash)
 		if err != nil {
 			lastErr = err
 			continue
@@ -513,7 +538,7 @@ func doFileDelete(cCtx *cli.Context) error {
 		return cli.ShowSubcommandHelp(cCtx)
 	}
 	cfg := cCtx.App.Metadata["config"].(*Config)
-	servers, err := fileServers(cCtx, cfg)
+	clients, err := resolveClients(cCtx, cfg)
 	if err != nil {
 		return err
 	}
@@ -521,13 +546,9 @@ func doFileDelete(cCtx *cli.Context) error {
 	ctx := context.Background()
 	var deleted int
 	for _, hash := range cCtx.Args().Slice() {
-		for _, server := range servers {
-			client, err := newMediaClient(cfg, server)
-			if err != nil {
-				return err
-			}
-			if err := client.Delete(ctx, hash); err != nil {
-				fmt.Fprintf(os.Stderr, "%s: %s: %v\n", server.URL, hash, err)
+		for _, sc := range clients {
+			if err := sc.client.Delete(ctx, hash); err != nil {
+				fmt.Fprintf(os.Stderr, "%s: %s: %v\n", sc.server.URL, hash, err)
 				continue
 			}
 			deleted++
@@ -544,22 +565,18 @@ func doFileCheck(cCtx *cli.Context) error {
 		return cli.ShowSubcommandHelp(cCtx)
 	}
 	cfg := cCtx.App.Metadata["config"].(*Config)
-	servers, err := fileServers(cCtx, cfg)
+	clients, err := resolveClients(cCtx, cfg)
 	if err != nil {
 		return err
 	}
 	hash := cCtx.Args().First()
 
 	ctx := context.Background()
-	for _, server := range servers {
-		client, err := newMediaClient(cfg, server)
-		if err != nil {
-			return err
-		}
-		if err := client.Check(ctx, hash); err != nil {
-			fmt.Printf("%s\tNG\t%v\n", server.URL, err)
+	for _, sc := range clients {
+		if err := sc.client.Check(ctx, hash); err != nil {
+			fmt.Printf("%s\tNG\t%v\n", sc.server.URL, err)
 		} else {
-			fmt.Printf("%s\tOK\n", server.URL)
+			fmt.Printf("%s\tOK\n", sc.server.URL)
 		}
 	}
 	return nil
@@ -586,19 +603,9 @@ func hashFromURL(u string) string {
 	return base
 }
 
-// blossomAuthHeader builds a BUD-01 "Nostr <base64(event)>" Authorization header
-// (kind 24242) signed with sk, with the given action verb and target hash.
-func blossomAuthHeader(sk, verb, hash string) (string, error) {
-	ev := nostr.Event{
-		CreatedAt: nostr.Now(),
-		Kind:      24242,
-		Content:   "blossom stuff",
-		Tags: nostr.Tags{
-			nostr.Tag{"t", verb},
-			nostr.Tag{"x", hash},
-			nostr.Tag{"expiration", strconv.FormatInt(int64(nostr.Now())+300, 10)},
-		},
-	}
+// authHeader signs ev with sk and encodes it as the "Nostr <base64(event)>"
+// Authorization value shared by BUD-01 (Blossom) and NIP-98 (HTTP) auth.
+func authHeader(sk string, ev nostr.Event) (string, error) {
 	if err := ev.Sign(sk); err != nil {
 		return "", err
 	}
@@ -609,36 +616,35 @@ func blossomAuthHeader(sk, verb, hash string) (string, error) {
 	return "Nostr " + base64.StdEncoding.EncodeToString(b), nil
 }
 
-// mirrorBlob asks the destination server to mirror the blob at sourceURL
-// (BUD-04 PUT /mirror) and returns the resulting blob descriptor.
-func mirrorBlob(ctx context.Context, sk, server, sourceURL, hash string) (*blossom.BlobDescriptor, error) {
-	body, err := json.Marshal(map[string]string{"url": sourceURL})
-	if err != nil {
-		return nil, err
-	}
-	req, err := http.NewRequestWithContext(ctx, "PUT", normalizeServer(server)+"/mirror", bytes.NewReader(body))
-	if err != nil {
-		return nil, err
-	}
+// blossomAuthHeader builds a BUD-01 Authorization header (kind 24242) signed
+// with sk, with the given action verb and target hash.
+func blossomAuthHeader(sk, verb, hash string) (string, error) {
+	return authHeader(sk, nostr.Event{
+		CreatedAt: nostr.Now(),
+		Kind:      24242,
+		Content:   "blossom stuff",
+		Tags: nostr.Tags{
+			nostr.Tag{"t", verb},
+			nostr.Tag{"x", hash},
+			nostr.Tag{"expiration", strconv.FormatInt(int64(nostr.Now())+300, 10)},
+		},
+	})
+}
+
+// blossomPutBlob PUTs body to a Blossom endpoint with a BUD-01 upload
+// authorization for hash and decodes the returned blob descriptor. It backs
+// both the BUD-04 /mirror and BUD-02 /upload requests.
+func blossomPutBlob(ctx context.Context, sk, url string, body []byte, contentType, hash string) (*blossom.BlobDescriptor, error) {
 	auth, err := blossomAuthHeader(sk, "upload", hash)
 	if err != nil {
 		return nil, err
 	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", auth)
-
-	resp, err := http.DefaultClient.Do(req)
+	b, _, err := httpDo(ctx, "PUT", url, body, map[string]string{
+		"Content-Type":  contentType,
+		"Authorization": auth,
+	})
 	if err != nil {
 		return nil, err
-	}
-	defer resp.Body.Close()
-	b, _ := io.ReadAll(resp.Body)
-	if resp.StatusCode >= 300 {
-		msg := strings.TrimSpace(resp.Header.Get("X-Reason"))
-		if msg == "" {
-			msg = strings.TrimSpace(string(b))
-		}
-		return nil, fmt.Errorf("status %d: %s", resp.StatusCode, msg)
 	}
 	var bd blossom.BlobDescriptor
 	if err := json.Unmarshal(b, &bd); err != nil {
@@ -647,41 +653,23 @@ func mirrorBlob(ctx context.Context, sk, server, sourceURL, hash string) (*bloss
 	return &bd, nil
 }
 
+// mirrorBlob asks the destination server to mirror the blob at sourceURL
+// (BUD-04 PUT /mirror) and returns the resulting blob descriptor.
+func mirrorBlob(ctx context.Context, sk, server, sourceURL, hash string) (*blossom.BlobDescriptor, error) {
+	body, err := json.Marshal(map[string]string{"url": sourceURL})
+	if err != nil {
+		return nil, err
+	}
+	return blossomPutBlob(ctx, sk, normalizeServer(server)+"/mirror", body, "application/json", hash)
+}
+
 // blossomUploadData uploads raw bytes to a Blossom server (BUD-02 PUT /upload),
 // authorizing the given sha256 hash, and returns the resulting blob descriptor.
 func blossomUploadData(ctx context.Context, sk, server string, data []byte, contentType, hash string) (*blossom.BlobDescriptor, error) {
-	req, err := http.NewRequestWithContext(ctx, "PUT", normalizeServer(server)+"/upload", bytes.NewReader(data))
-	if err != nil {
-		return nil, err
-	}
-	auth, err := blossomAuthHeader(sk, "upload", hash)
-	if err != nil {
-		return nil, err
-	}
 	if contentType == "" {
 		contentType = "application/octet-stream"
 	}
-	req.Header.Set("Content-Type", contentType)
-	req.Header.Set("Authorization", auth)
-
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-	b, _ := io.ReadAll(resp.Body)
-	if resp.StatusCode >= 300 {
-		msg := strings.TrimSpace(resp.Header.Get("X-Reason"))
-		if msg == "" {
-			msg = strings.TrimSpace(string(b))
-		}
-		return nil, fmt.Errorf("status %d: %s", resp.StatusCode, msg)
-	}
-	var bd blossom.BlobDescriptor
-	if err := json.Unmarshal(b, &bd); err != nil {
-		return nil, err
-	}
-	return &bd, nil
+	return blossomPutBlob(ctx, sk, normalizeServer(server)+"/upload", data, contentType, hash)
 }
 
 // fetchAndHash downloads the source URL and returns its bytes, content type and
@@ -768,16 +756,8 @@ func newDestChecker(ctx context.Context, cfg *Config, server fileServer) (func(s
 // blossomHas reports whether server holds the blob with the given sha256, via a
 // HEAD request (BUD-01 GET/HEAD /<sha256>).
 func blossomHas(ctx context.Context, server, hash string) bool {
-	req, err := http.NewRequestWithContext(ctx, "HEAD", normalizeServer(server)+"/"+hash, nil)
-	if err != nil {
-		return false
-	}
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return false
-	}
-	resp.Body.Close()
-	return resp.StatusCode < 300
+	resp, err := httpHead(ctx, normalizeServer(server)+"/"+hash)
+	return err == nil && resp.StatusCode < 300
 }
 
 // tagValue returns the value of the first tag with the given key, or "".
@@ -804,35 +784,20 @@ func nip98Header(sk, url, method string, body []byte) (string, error) {
 		sum := sha256.Sum256(body)
 		ev.Tags = append(ev.Tags, nostr.Tag{"payload", hex.EncodeToString(sum[:])})
 	}
-	if err := ev.Sign(sk); err != nil {
-		return "", err
-	}
-	b, err := json.Marshal(ev)
-	if err != nil {
-		return "", err
-	}
-	return "Nostr " + base64.StdEncoding.EncodeToString(b), nil
+	return authHeader(sk, ev)
 }
 
 // nip96APIURL fetches the NIP-96 server config and returns its api_url.
 func nip96APIURL(ctx context.Context, server string) (string, error) {
 	url := normalizeServer(server) + "/.well-known/nostr/nip96.json"
-	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+	b, _, err := httpDo(ctx, "GET", url, nil, nil)
 	if err != nil {
 		return "", err
-	}
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return "", err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode >= 300 {
-		return "", fmt.Errorf("well-known status %d", resp.StatusCode)
 	}
 	var cfg struct {
 		APIURL string `json:"api_url"`
 	}
-	if err := json.NewDecoder(resp.Body).Decode(&cfg); err != nil {
+	if err := json.Unmarshal(b, &cfg); err != nil {
 		return "", err
 	}
 	if cfg.APIURL == "" {
@@ -911,11 +876,7 @@ func mirrorFromSource(ctx context.Context, cCtx *cli.Context, cfg *Config, serve
 				continue
 			}
 			mirrored++
-			if cCtx.Bool("json") {
-				fmt.Println(bd.String())
-			} else {
-				fmt.Println(bd.URL)
-			}
+			printBlob(cCtx, bd)
 		}
 	}
 	if dryRun {
@@ -979,11 +940,7 @@ func mirrorBlobs(ctx context.Context, cCtx *cli.Context, dests []fileServer, sk 
 				continue
 			}
 			mirrored++
-			if cCtx.Bool("json") {
-				fmt.Println(bd.String())
-			} else {
-				fmt.Println(bd.URL)
-			}
+			printBlob(cCtx, bd)
 		}
 	}
 	if mirrored == 0 {
@@ -995,16 +952,8 @@ func mirrorBlobs(ctx context.Context, cCtx *cli.Context, dests []fileServer, sk 
 // headSize returns the Content-Length of url via a HEAD request, or -1 if
 // unknown.
 func headSize(ctx context.Context, url string) int64 {
-	req, err := http.NewRequestWithContext(ctx, "HEAD", url, nil)
-	if err != nil {
-		return -1
-	}
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return -1
-	}
-	resp.Body.Close()
-	if resp.StatusCode >= 300 {
+	resp, err := httpHead(ctx, url)
+	if err != nil || resp.StatusCode >= 300 {
 		return -1
 	}
 	return resp.ContentLength
