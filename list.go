@@ -389,8 +389,11 @@ func doListShow(cCtx *cli.Context) error {
 
 	cfg := cCtx.App.Metadata["config"].(*Config)
 
+	// For a set (kind >= 30000) a name selects which list to show. Without a
+	// name there is nothing specific to show, so fall back to listing all sets
+	// of that kind (like "list -l" filtered by kind).
 	if !isStandardList(kind) && name == "" {
-		return cli.ShowSubcommandHelp(cCtx)
+		return doList(cCtx)
 	}
 
 	ev, err := callListShow(&listShowArg{
