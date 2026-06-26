@@ -160,9 +160,64 @@ type blossomMediaClient struct {
 func (b *blossomMediaClient) Upload(ctx context.Context, path string) (*blossom.BlobDescriptor, error) {
 	return b.c.UploadFile(ctx, path)
 }
+
+// List enumerates every blob the user owns. blossom.Client.List issues a single
+// GET /list/<pubkey>, but servers cap that response (e.g. 100 entries), so this
+// pages with the BUD-02 "until" query parameter (uploaded timestamp) until no
+// new blobs come back.
 func (b *blossomMediaClient) List(ctx context.Context) ([]blossom.BlobDescriptor, error) {
-	return b.c.List(ctx)
+	pub, err := nostr.GetPublicKey(b.sk)
+	if err != nil {
+		return nil, err
+	}
+	base := normalizeServer(b.server) + "/list/" + pub
+
+	var all []blossom.BlobDescriptor
+	seen := map[string]bool{}
+	var until nostr.Timestamp // 0 = unfiltered first page
+	for {
+		url := base
+		if until > 0 {
+			url = fmt.Sprintf("%s?until=%d", base, until)
+		}
+		auth, err := blossomListAuth(b.sk)
+		if err != nil {
+			return nil, err
+		}
+		body, _, err := httpDo(ctx, "GET", url, nil, map[string]string{"Authorization": auth})
+		if err != nil {
+			return nil, err
+		}
+		var page []blossom.BlobDescriptor
+		if err := json.Unmarshal(body, &page); err != nil {
+			return nil, err
+		}
+
+		var oldest nostr.Timestamp
+		added := 0
+		for i, bd := range page {
+			if i == 0 || bd.Uploaded < oldest {
+				oldest = bd.Uploaded
+			}
+			if bd.SHA256 != "" && seen[bd.SHA256] {
+				continue
+			}
+			seen[bd.SHA256] = true
+			all = append(all, bd)
+			added++
+		}
+		// Stop once a page adds nothing new or has no timestamp to page on.
+		// "until" is inclusive, so re-query at the oldest timestamp to catch
+		// any same-second blobs that the cap pushed onto the next page; the
+		// seen-set dedups the overlap.
+		if added == 0 || oldest == 0 {
+			break
+		}
+		until = oldest
+	}
+	return all, nil
 }
+
 // Download fetches a blob by hash. It builds the URL itself instead of using
 // blossom.Client.Download, which joins "<server>/" and "/<hash>" into a "//"
 // path that strict servers answer with 404. BUD-01 GET auth is optional, so a
@@ -629,6 +684,20 @@ func authHeader(sk string, ev nostr.Event) (string, error) {
 		return "", err
 	}
 	return "Nostr " + base64.StdEncoding.EncodeToString(b), nil
+}
+
+// blossomListAuth builds a BUD-02 list Authorization header (kind 24242, t=list)
+// signed with sk. Unlike blossomAuthHeader it carries no "x" target hash.
+func blossomListAuth(sk string) (string, error) {
+	return authHeader(sk, nostr.Event{
+		CreatedAt: nostr.Now(),
+		Kind:      24242,
+		Content:   "blossom stuff",
+		Tags: nostr.Tags{
+			nostr.Tag{"t", "list"},
+			nostr.Tag{"expiration", strconv.FormatInt(int64(nostr.Now())+300, 10)},
+		},
+	})
 }
 
 // blossomAuthHeader builds a BUD-01 Authorization header (kind 24242) signed
