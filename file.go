@@ -114,7 +114,7 @@ func newMediaClient(cfg *Config, fs fileServer) (mediaClient, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &blossomMediaClient{c: blossom.NewClient(fs.URL, signer)}, nil
+	return &blossomMediaClient{c: blossom.NewClient(fs.URL, signer), sk: sk, server: fs.URL}, nil
 }
 
 // serverClient pairs a configured server with its ready-to-use client.
@@ -152,7 +152,9 @@ func printBlob(cCtx *cli.Context, bd *blossom.BlobDescriptor) {
 
 // blossomMediaClient adapts blossom.Client to the mediaClient interface.
 type blossomMediaClient struct {
-	c *blossom.Client
+	c      *blossom.Client
+	sk     string
+	server string
 }
 
 func (b *blossomMediaClient) Upload(ctx context.Context, path string) (*blossom.BlobDescriptor, error) {
@@ -161,11 +163,24 @@ func (b *blossomMediaClient) Upload(ctx context.Context, path string) (*blossom.
 func (b *blossomMediaClient) List(ctx context.Context) ([]blossom.BlobDescriptor, error) {
 	return b.c.List(ctx)
 }
+// Download fetches a blob by hash. It builds the URL itself instead of using
+// blossom.Client.Download, which joins "<server>/" and "/<hash>" into a "//"
+// path that strict servers answer with 404. BUD-01 GET auth is optional, so a
+// signed "get" header is attached for servers that require it.
 func (b *blossomMediaClient) Download(ctx context.Context, hash string) ([]byte, error) {
-	return b.c.Download(ctx, hash)
+	auth, err := blossomAuthHeader(b.sk, "get", hash)
+	if err != nil {
+		return nil, err
+	}
+	body, _, err := httpDo(ctx, "GET", normalizeServer(b.server)+"/"+hash, nil, map[string]string{"Authorization": auth})
+	return body, err
 }
 func (b *blossomMediaClient) DownloadToFile(ctx context.Context, hash, out string) error {
-	return b.c.DownloadToFile(ctx, hash, out)
+	data, err := b.Download(ctx, hash)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(out, data, 0644)
 }
 func (b *blossomMediaClient) Delete(ctx context.Context, hash string) error {
 	return b.c.Delete(ctx, hash)
