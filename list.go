@@ -172,8 +172,31 @@ func callList(arg *listArg) ([]listEntry, error) {
 		return nil, err
 	}
 
+	// Lists are replaceable: standard lists by (kind), sets by (kind, d-tag).
+	// Relays may still hold older versions, so keep only the newest per key.
+	addrKey := func(ev *nostr.Event) string {
+		key := fmt.Sprintf("%d", ev.Kind)
+		if !isStandardList(ev.Kind) {
+			if d := ev.Tags.GetFirst([]string{"d", ""}); d != nil {
+				key += ":" + (*d)[1]
+			}
+		}
+		return key
+	}
+	latest := make(map[string]*nostr.Event)
+	for _, ev := range evs {
+		key := addrKey(ev)
+		if cur, ok := latest[key]; !ok || ev.CreatedAt > cur.CreatedAt {
+			latest[key] = ev
+		}
+	}
+
 	var entries []listEntry
 	for _, ev := range evs {
+		// Skip events that are not the newest version for their key.
+		if latest[addrKey(ev)] != ev {
+			continue
+		}
 		label := kindLabel(ev.Kind)
 		if isStandardList(ev.Kind) {
 			count := 0
