@@ -741,13 +741,19 @@ func listCommand() *cli.Command {
 	}
 	return &cli.Command{
 		Name:  "list",
-		Usage: "show all lists",
+		Usage: "manage lists (NIP-51)",
 		Flags: []cli.Flag{
+			&cli.BoolFlag{Name: "l", Usage: "show all lists"},
 			&cli.BoolFlag{Name: "json", Usage: "output JSON"},
 			&cli.IntFlag{Name: "kind", Usage: "filter by kind (e.g. 30000)"},
 		},
-		UsageText: "algia list",
-		Action:    doList,
+		UsageText: "algia list -l",
+		Action: func(cCtx *cli.Context) error {
+			if cCtx.Bool("l") {
+				return doList(cCtx)
+			}
+			return cli.ShowSubcommandHelp(cCtx)
+		},
 		Subcommands: []*cli.Command{
 			{
 				Name: "show",
