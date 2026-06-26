@@ -27,7 +27,7 @@ COMMANDS:
    search, s     search notes
    dm            direct messages (list/timeline/post)
    bm            bookmarks (list/post)
-   list          lists (show/add/remove/delete)
+   list          lists (list/show/add/remove/delete)
    channel       public chat channels (create/list/timeline/stream/post)
    file          Blossom/NIP-96 media servers (upload/list/get/delete/check/mirror)
    profile       show profile

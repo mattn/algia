@@ -760,27 +760,31 @@ func itemToTag(item string, kind int) nostr.Tag {
 }
 
 // listCommand returns the "list" parent command. Running "algia list" with no
-// subcommand shows all lists; subcommands operate on a specific list.
+// subcommand shows help; "algia list list" shows all lists and the other
+// subcommands operate on a specific list. The "list list" form keeps the verb
+// consistent with "bm list", "dm list", "channel list" and "file list".
 func listCommand() *cli.Command {
 	kindFlag := func() cli.Flag {
 		return &cli.IntFlag{Name: "kind", Usage: "list kind (e.g. 10002 for relay list, 30000 for follow set)"}
 	}
 	return &cli.Command{
-		Name:  "list",
-		Usage: "manage lists (NIP-51)",
-		Flags: []cli.Flag{
-			&cli.BoolFlag{Name: "l", Usage: "show all lists"},
-			&cli.BoolFlag{Name: "json", Usage: "output JSON"},
-			&cli.IntFlag{Name: "kind", Usage: "filter by kind (e.g. 30000)"},
-		},
-		UsageText: "algia list -l",
+		Name:      "list",
+		Usage:     "manage lists (NIP-51)",
+		UsageText: "algia list <command>",
 		Action: func(cCtx *cli.Context) error {
-			if cCtx.Bool("l") {
-				return doList(cCtx)
-			}
 			return cli.ShowSubcommandHelp(cCtx)
 		},
 		Subcommands: []*cli.Command{
+			{
+				Name: "list",
+				Flags: []cli.Flag{
+					&cli.BoolFlag{Name: "json", Usage: "output JSON"},
+					&cli.IntFlag{Name: "kind", Usage: "filter by kind (e.g. 30000)"},
+				},
+				Usage:     "show all lists",
+				UsageText: "algia list list [--kind <kind>]",
+				Action:    doList,
+			},
 			{
 				Name: "show",
 				Flags: []cli.Flag{
