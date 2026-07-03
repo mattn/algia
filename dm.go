@@ -357,7 +357,7 @@ func doDMPost(cCtx *cli.Context) error {
 		if err != nil {
 			return err
 		}
-		if err := ev.Sign(sk); err != nil {
+		if err := cfg.signEvent(&ev); err != nil {
 			return err
 		}
 

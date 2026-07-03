@@ -449,7 +449,7 @@ type listAddArg struct {
 }
 
 func callListAdd(arg *listAddArg) error {
-	sk, pub, err := getSkAndPub(arg.cfg)
+	_, pub, err := getSkAndPub(arg.cfg)
 	if err != nil {
 		return err
 	}
@@ -499,7 +499,7 @@ func callListAdd(arg *listAddArg) error {
 		ev.Tags = ev.Tags.AppendUnique(tag)
 	}
 
-	if err := ev.Sign(sk); err != nil {
+	if err := arg.cfg.signEvent(&ev); err != nil {
 		return err
 	}
 
@@ -546,7 +546,7 @@ type listRemoveArg struct {
 }
 
 func callListRemove(arg *listRemoveArg) error {
-	sk, pub, err := getSkAndPub(arg.cfg)
+	_, pub, err := getSkAndPub(arg.cfg)
 	if err != nil {
 		return err
 	}
@@ -603,7 +603,7 @@ func callListRemove(arg *listRemoveArg) error {
 		ev.Tags = append(ev.Tags, tag)
 	}
 
-	if err := ev.Sign(sk); err != nil {
+	if err := arg.cfg.signEvent(&ev); err != nil {
 		return err
 	}
 
@@ -649,7 +649,7 @@ type listDeleteArg struct {
 }
 
 func callListDelete(arg *listDeleteArg) error {
-	sk, pub, err := getSkAndPub(arg.cfg)
+	_, pub, err := getSkAndPub(arg.cfg)
 	if err != nil {
 		return err
 	}
@@ -672,7 +672,7 @@ func callListDelete(arg *listDeleteArg) error {
 		}
 	}
 
-	if err := ev.Sign(sk); err != nil {
+	if err := arg.cfg.signEvent(&ev); err != nil {
 		return err
 	}
 

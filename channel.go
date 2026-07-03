@@ -187,7 +187,7 @@ func doChannelCreate(cCtx *cli.Context) error {
 	}
 	cfg := cCtx.App.Metadata["config"].(*Config)
 
-	sk, pub, err := getSkAndPub(cfg)
+	_, pub, err := getSkAndPub(cfg)
 	if err != nil {
 		return err
 	}
@@ -200,7 +200,7 @@ func doChannelCreate(cCtx *cli.Context) error {
 	if err != nil {
 		return err
 	}
-	if err := ev.Sign(sk); err != nil {
+	if err := cfg.signEvent(ev); err != nil {
 		return err
 	}
 
@@ -386,7 +386,7 @@ func doChannelPost(cCtx *cli.Context) error {
 
 	cfg := cCtx.App.Metadata["config"].(*Config)
 
-	sk, pub, err := getSkAndPub(cfg)
+	_, pub, err := getSkAndPub(cfg)
 	if err != nil {
 		return err
 	}
@@ -421,7 +421,7 @@ func doChannelPost(cCtx *cli.Context) error {
 	if err != nil {
 		return err
 	}
-	if err := ev.Sign(sk); err != nil {
+	if err := cfg.signEvent(ev); err != nil {
 		return err
 	}
 

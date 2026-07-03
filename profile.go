@@ -164,16 +164,9 @@ func doUpdateProfile(cCtx *cli.Context) error {
 	}
 	ev.Content = string(b)
 
-	var sk string
-	if _, s, err := nip19.Decode(cfg.PrivateKey); err == nil {
-		sk = s.(string)
-	} else {
-		return err
-	}
-
 	clientTag(ev)
 	ev.CreatedAt = nostr.Now()
-	if err := ev.Sign(sk); err != nil {
+	if err := cfg.signEvent(ev); err != nil {
 		return err
 	}
 

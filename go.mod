@@ -3,6 +3,7 @@ module github.com/mattn/algia
 go 1.24.1
 
 require (
+	github.com/btcsuite/btcd/btcec/v2 v2.3.6
 	github.com/fatih/color v1.18.0
 	github.com/mark3labs/mcp-go v0.43.1
 	github.com/mdp/qrterminal/v3 v3.2.1
@@ -15,7 +16,6 @@ require (
 	github.com/ImVexed/fasturl v0.0.0-20230304231329-4e41488060f3 // indirect
 	github.com/andybalholm/brotli v1.1.1 // indirect
 	github.com/bahlo/generic-list-go v0.2.0 // indirect
-	github.com/btcsuite/btcd/btcec/v2 v2.3.6 // indirect
 	github.com/btcsuite/btcd/btcutil v1.1.6 // indirect
 	github.com/btcsuite/btcd/chaincfg/chainhash v1.1.0 // indirect
 	github.com/buger/jsonparser v1.1.1 // indirect
