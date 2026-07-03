@@ -92,7 +92,7 @@ type postArg struct {
 }
 
 func callPost(arg *postArg) error {
-	sk, pub, err := getSkAndPub(arg.cfg)
+	_, pub, err := getSkAndPub(arg.cfg)
 	if err != nil {
 		return err
 	}
@@ -110,7 +110,7 @@ func callPost(arg *postArg) error {
 	if err != nil {
 		return err
 	}
-	if err := ev.Sign(sk); err != nil {
+	if err := arg.cfg.signEvent(ev); err != nil {
 		return err
 	}
 
@@ -185,7 +185,7 @@ func doEvent(cCtx *cli.Context) error {
 	ev.Kind = kind
 	ev.CreatedAt = nostr.Now()
 
-	if err := ev.Sign(sk); err != nil {
+	if err := cfg.signEvent(&ev); err != nil {
 		return err
 	}
 
@@ -218,7 +218,7 @@ func doReply(cCtx *cli.Context) error {
 	}
 
 	cfg := cCtx.App.Metadata["config"].(*Config)
-	sk, pub, err := getSkAndPub(cfg)
+	_, pub, err := getSkAndPub(cfg)
 	if err != nil {
 		return err
 	}
@@ -254,7 +254,7 @@ func doReply(cCtx *cli.Context) error {
 	if err != nil {
 		return err
 	}
-	if err := ev.Sign(sk); err != nil {
+	if err := cfg.signEvent(ev); err != nil {
 		return err
 	}
 
@@ -326,7 +326,7 @@ func doUnrepost(cCtx *cli.Context) error {
 	if err != nil {
 		return err
 	}
-	if err := ev.Sign(sk); err != nil {
+	if err := cfg.signEvent(ev); err != nil {
 		return err
 	}
 
@@ -365,7 +365,7 @@ type likeArg struct {
 }
 
 func callLike(arg *likeArg) error {
-	sk, pub, err := getSkAndPub(arg.cfg)
+	_, pub, err := getSkAndPub(arg.cfg)
 	if err != nil {
 		return err
 	}
@@ -395,7 +395,7 @@ func callLike(arg *likeArg) error {
 	if err != nil {
 		return err
 	}
-	if err := ev.Sign(sk); err != nil {
+	if err := arg.cfg.signEvent(ev); err != nil {
 		return err
 	}
 
@@ -481,7 +481,7 @@ func callUnlike(arg *unlikeArg) error {
 		return fmt.Errorf("failed to parse event from '%s'", arg.id)
 	}
 
-	sk, pub, err := getSkAndPub(arg.cfg)
+	_, pub, err := getSkAndPub(arg.cfg)
 	if err != nil {
 		return err
 	}
@@ -509,7 +509,7 @@ func callUnlike(arg *unlikeArg) error {
 	if err != nil {
 		return err
 	}
-	if err := ev.Sign(sk); err != nil {
+	if err := arg.cfg.signEvent(ev); err != nil {
 		return err
 	}
 
@@ -791,7 +791,7 @@ func doStream(cCtx *cli.Context) error {
 			evr.Tags = evr.Tags.AppendUnique(nostr.Tag{"e", ev.ID, "", "reply"})
 			evr.CreatedAt = ev.CreatedAt + 1
 			evr.Kind = ev.Kind
-			if err := evr.Sign(sk); err != nil {
+			if err := cfg.signEvent(&evr); err != nil {
 				return err
 			}
 			cfg.Do(context.Background(), Relay{Write: true}, func(ctx context.Context, relay *nostr.Relay) bool {
@@ -913,7 +913,7 @@ func postMsg(cCtx *cli.Context, msg string) error {
 	ev.Kind = nostr.KindTextNote
 	ev.Tags = nostr.Tags{}
 	clientTag(&ev)
-	if err := ev.Sign(sk); err != nil {
+	if err := cfg.signEvent(&ev); err != nil {
 		return err
 	}
 
@@ -958,7 +958,7 @@ func callReply(arg *replyArg) error {
 		return fmt.Errorf("failed to parse event from '%s'", id)
 	}
 
-	sk, pub, err := getSkAndPub(arg.cfg)
+	_, pub, err := getSkAndPub(arg.cfg)
 	if err != nil {
 		return err
 	}
@@ -971,7 +971,7 @@ func callReply(arg *replyArg) error {
 	if err != nil {
 		return err
 	}
-	if err := ev.Sign(sk); err != nil {
+	if err := arg.cfg.signEvent(ev); err != nil {
 		return err
 	}
 
@@ -1000,7 +1000,7 @@ type repostArg struct {
 func callRepost(arg *repostArg) error {
 	id := arg.id
 
-	sk, pub, err := getSkAndPub(arg.cfg)
+	_, pub, err := getSkAndPub(arg.cfg)
 	if err != nil {
 		return err
 	}
@@ -1023,7 +1023,7 @@ func callRepost(arg *repostArg) error {
 	if err != nil {
 		return err
 	}
-	if err := ev.Sign(sk); err != nil {
+	if err := arg.cfg.signEvent(ev); err != nil {
 		return err
 	}
 
@@ -1057,7 +1057,7 @@ func callUnrepost(arg *unrepostArg) error {
 		return fmt.Errorf("failed to parse event from '%s'", id)
 	}
 
-	sk, pub, err := getSkAndPub(arg.cfg)
+	_, pub, err := getSkAndPub(arg.cfg)
 	if err != nil {
 		return err
 	}
@@ -1085,7 +1085,7 @@ func callUnrepost(arg *unrepostArg) error {
 	if err != nil {
 		return err
 	}
-	if err := ev.Sign(sk); err != nil {
+	if err := arg.cfg.signEvent(ev); err != nil {
 		return err
 	}
 
@@ -1123,7 +1123,7 @@ func callDelete(arg *deleteArg) error {
 		return fmt.Errorf("failed to parse event from '%s'", id)
 	}
 
-	sk, pub, err := getSkAndPub(arg.cfg)
+	_, pub, err := getSkAndPub(arg.cfg)
 	if err != nil {
 		return err
 	}
@@ -1132,7 +1132,7 @@ func callDelete(arg *deleteArg) error {
 	if err != nil {
 		return err
 	}
-	if err := ev.Sign(sk); err != nil {
+	if err := arg.cfg.signEvent(ev); err != nil {
 		return err
 	}
 
@@ -1294,7 +1294,7 @@ func callReport(arg *reportArg) error {
 		report.Tags = append(report.Tags, nostr.Tag{"e", targetEventID})
 	}
 
-	if err := report.Sign(sk); err != nil {
+	if err := arg.cfg.signEvent(report); err != nil {
 		return err
 	}
 
@@ -1416,7 +1416,7 @@ func callReportProfile(arg *reportProfileArg) error {
 		report.Tags = append(report.Tags, nostr.Tag{"p", targetPubkey})
 	}
 
-	if err := report.Sign(sk); err != nil {
+	if err := arg.cfg.signEvent(report); err != nil {
 		return err
 	}
 

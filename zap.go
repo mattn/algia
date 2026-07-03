@@ -268,7 +268,7 @@ func callZap(arg *zapArg) error {
 	zr.Kind = nostr.KindZapRequest // 9734
 	zr.CreatedAt = nostr.Now()
 	zr.Content = arg.comment
-	if err := zr.Sign(sk); err != nil {
+	if err := arg.cfg.signEvent(&zr); err != nil {
 		return err
 	}
 	b, err := zr.MarshalJSON()

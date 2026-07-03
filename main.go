@@ -57,6 +57,7 @@ type Config struct {
 	Emojis         map[string]string `json:"emojis"`
 	NwcURI         string            `json:"nwc-uri"`
 	FileServers    []fileServer      `json:"file-servers"`
+	Delegation     *Delegation       `json:"delegation,omitempty"`
 	profiles       map[string]Profile
 	pool           *nostr.SimplePool
 	profileChanged bool
@@ -605,7 +606,8 @@ func (cfg *Config) PrintEvents(evs []*nostr.Event, followsMap map[string]Profile
 	}
 
 	for _, ev := range evs {
-		profile, err := cfg.GetProfile(ev.PubKey)
+		pubkey, delegated := delegationDisplayPubKey(ev)
+		profile, err := cfg.GetProfile(pubkey)
 
 		fmt.Print(ev.CreatedAt.Time().Format("2006-01-02T15:04:05") + " ")
 		if err == nil {
@@ -613,11 +615,15 @@ func (cfg *Config) PrintEvents(evs []*nostr.Event, followsMap map[string]Profile
 			fmt.Print(profile.Name)
 		} else {
 			color.Set(color.FgRed)
-			if pk, err := nip19.EncodePublicKey(ev.PubKey); err == nil {
+			if pk, err := nip19.EncodePublicKey(pubkey); err == nil {
 				fmt.Print(pk)
 			} else {
-				fmt.Print(ev.PubKey)
+				fmt.Print(pubkey)
 			}
+		}
+		if delegated {
+			color.Set(color.FgHiBlack)
+			fmt.Print(" (delegated)")
 		}
 		color.Set(color.Reset)
 		fmt.Print(": ")
@@ -654,17 +660,22 @@ func (cfg *Config) PrintEvent(ev *nostr.Event, j, extra bool) {
 
 	fmt.Print(ev.CreatedAt.Time().Format("2006-01-02T15:04:05") + " ")
 
+	pubkey, delegated := delegationDisplayPubKey(ev)
 	// Check cache only, don't fetch
-	if profile, err := cfg.GetProfile(ev.PubKey); err == nil {
+	if profile, err := cfg.GetProfile(pubkey); err == nil {
 		color.Set(color.FgHiRed)
 		fmt.Print(profile.Name)
 	} else {
 		color.Set(color.FgRed)
-		if pk, err := nip19.EncodePublicKey(ev.PubKey); err == nil {
+		if pk, err := nip19.EncodePublicKey(pubkey); err == nil {
 			fmt.Print(pk)
 		} else {
-			fmt.Print(ev.PubKey)
+			fmt.Print(pubkey)
 		}
+	}
+	if delegated {
+		color.Set(color.FgHiBlack)
+		fmt.Print(" (delegated)")
 	}
 	color.Set(color.Reset)
 	fmt.Print(": ")
@@ -1017,7 +1028,7 @@ func doReport(cCtx *cli.Context) error {
 	}
 
 	// Sign
-	if err := report.Sign(sk); err != nil {
+	if err := cfg.signEvent(report); err != nil {
 		return err
 	}
 
@@ -1329,6 +1340,7 @@ func main() {
 				Action:    doReport,
 			},
 			fileCommand(),
+			delegationCommand(),
 		},
 		Before: func(cCtx *cli.Context) error {
 			switch cCtx.Args().Get(0) {
