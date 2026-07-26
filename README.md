@@ -70,6 +70,23 @@ Minimal configuration. Need to be at ~/.config/algia/config.json
 }
 ```
 
+For a relay that requires NIP-42 authentication before it will serve reads (some
+signal this with a `NOTICE` rather than a `CLOSED` message), add `"auth": true`
+to that relay so algia authenticates up front:
+
+```json
+{
+  "relays": {
+    "wss://vim-jp.communities.buzz.xyz": {
+      "read": true,
+      "write": true,
+      "auth": true
+    }
+  },
+  "privatekey": "nsecXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX"
+}
+```
+
 If you want to operate media servers ([Blossom](https://github.com/hzrd149/blossom)
 or [NIP-96](https://github.com/nostr-protocol/nips/blob/master/96.md)), add
 `file-servers`. Uploads, deletes and checks are applied to every listed server;
