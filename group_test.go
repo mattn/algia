@@ -84,6 +84,44 @@ func TestBuildGroupDeleteEvent(t *testing.T) {
 	}
 }
 
+func TestBuildGroupReactEvent(t *testing.T) {
+	const pub = "0000000000000000000000000000000000000000000000000000000000000001"
+	ev, err := buildGroupReactEvent(pub, "grp-42", "target-id", "", "", 7)
+	if err != nil {
+		t.Fatalf("err=%v", err)
+	}
+	if ev.Kind != nostr.KindReaction {
+		t.Errorf("Kind=%d want %d", ev.Kind, nostr.KindReaction)
+	}
+	if ev.Content != "+" {
+		t.Errorf("Content=%q want default +", ev.Content)
+	}
+	if h := findTag(ev.Tags, "h"); h == nil || len(h) < 2 || h[1] != "grp-42" {
+		t.Errorf("h tag=%v want [h grp-42]", h)
+	}
+	if e := findTag(ev.Tags, "e"); e == nil || len(e) < 2 || e[1] != "target-id" {
+		t.Errorf("e tag=%v want [e target-id]", e)
+	}
+
+	ev, err = buildGroupReactEvent(pub, "grp", "t", "star", "https://ex/star.png", 7)
+	if err != nil {
+		t.Fatalf("err=%v", err)
+	}
+	if ev.Content != ":star:" {
+		t.Errorf("Content=%q want :star:", ev.Content)
+	}
+	if em := findTag(ev.Tags, "emoji"); em == nil || em[1] != "star" || em[2] != "https://ex/star.png" {
+		t.Errorf("emoji tag=%v", em)
+	}
+
+	if _, err := buildGroupReactEvent(pub, "", "t", "+", "", 7); err == nil {
+		t.Errorf("empty group id: want error")
+	}
+	if _, err := buildGroupReactEvent(pub, "g", "", "+", "", 7); err == nil {
+		t.Errorf("empty target id: want error")
+	}
+}
+
 func TestBuildGroupPostEvent_Errors(t *testing.T) {
 	const pub = "0000000000000000000000000000000000000000000000000000000000000001"
 	if _, err := buildGroupPostEvent(pub, "grp", "   ", 1); err == nil {

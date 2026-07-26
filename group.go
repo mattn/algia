@@ -370,6 +370,91 @@ func doGroupDelete(cCtx *cli.Context) error {
 	return nil
 }
 
+// buildGroupReactEvent constructs an unsigned kind 7 reaction to a message in a
+// NIP-29 group. Like the message itself, it carries the group "h" tag so the
+// relay associates it with the group; the target message is the "e" tag.
+func buildGroupReactEvent(pubkey, groupID, targetID, content, emoji string, createdAt nostr.Timestamp) (*nostr.Event, error) {
+	if strings.TrimSpace(groupID) == "" {
+		return nil, errors.New("group id is empty")
+	}
+	if strings.TrimSpace(targetID) == "" {
+		return nil, errors.New("target id is empty")
+	}
+	ev := &nostr.Event{
+		PubKey:    pubkey,
+		CreatedAt: createdAt,
+		Kind:      nostr.KindReaction,
+		Tags: nostr.Tags{
+			nostr.Tag{"h", groupID},
+			nostr.Tag{"e", targetID},
+		},
+		Content: content,
+	}
+	if emoji != "" {
+		if ev.Content == "" {
+			ev.Content = "like"
+		}
+		ev.Tags = ev.Tags.AppendUnique(nostr.Tag{"emoji", ev.Content, emoji})
+		ev.Content = ":" + ev.Content + ":"
+	}
+	if ev.Content == "" {
+		ev.Content = "+"
+	}
+	return ev, nil
+}
+
+func doGroupReact(cCtx *cli.Context) error {
+	id := cCtx.String("id")
+	target := cCtx.String("target")
+	if strings.TrimSpace(id) == "" || strings.TrimSpace(target) == "" {
+		return cli.ShowSubcommandHelp(cCtx)
+	}
+
+	cfg := cCtx.App.Metadata["config"].(*Config)
+
+	_, pub, err := getSkAndPub(cfg)
+	if err != nil {
+		return err
+	}
+
+	evp := sdk.InputToEventPointer(target)
+	if evp == nil {
+		return fmt.Errorf("failed to parse event id from '%s'", target)
+	}
+
+	ev, err := buildGroupReactEvent(pub, id, evp.ID, cCtx.String("content"), cCtx.String("emoji"), nostr.Now())
+	if err != nil {
+		return err
+	}
+	if err := cfg.signEvent(ev); err != nil {
+		return err
+	}
+
+	relays := writeRelays(cfg)
+	if len(relays) == 0 {
+		return errors.New("no write relays available")
+	}
+
+	ctx := context.Background()
+	cfg.preAuth(ctx, relays)
+
+	var success int
+	for res := range cfg.pool.PublishMany(ctx, relays, *ev) {
+		if res.Error != nil {
+			fmt.Fprintln(os.Stderr, res.RelayURL, res.Error)
+		} else {
+			success++
+		}
+	}
+	if success == 0 {
+		return errors.New("cannot react to group message")
+	}
+	if cfg.verbose {
+		fmt.Println(ev.ID)
+	}
+	return nil
+}
+
 // groupCommand returns the "group" parent command with its subcommands (NIP-29).
 func groupCommand() *cli.Command {
 	return &cli.Command{
@@ -431,6 +516,18 @@ func groupCommand() *cli.Command {
 				UsageText: "algia group delete --id [group id] <event id> [event id...]",
 				ArgsUsage: "<event id> [event id...]",
 				Action:    doGroupDelete,
+			},
+			{
+				Name: "react",
+				Flags: []cli.Flag{
+					&cli.StringFlag{Name: "id", Required: true, Usage: "group id (the h-tag value)"},
+					&cli.StringFlag{Name: "target", Required: true, Usage: "target message id (note/nevent/hex)"},
+					&cli.StringFlag{Name: "content", Usage: "reaction content (default: +)"},
+					&cli.StringFlag{Name: "emoji", Usage: "custom emoji URL (NIP-30)"},
+				},
+				Usage:     "react to a message in a group (NIP-29 kind 7)",
+				UsageText: "algia group react --id [group id] --target [message id] [--content +]",
+				Action:    doGroupReact,
 			},
 		},
 	}
