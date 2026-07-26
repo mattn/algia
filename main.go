@@ -1388,6 +1388,7 @@ func main() {
 			},
 			listCommand(),
 			channelCommand(),
+			groupCommand(),
 			{
 				Name:    "report",
 				Aliases: []string{"rep"},
