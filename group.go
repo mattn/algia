@@ -291,26 +291,27 @@ func doGroupPost(cCtx *cli.Context) error {
 }
 
 // buildGroupDeleteEvent constructs an unsigned kind 9005 event that asks the
-// relay to delete one or more messages from a NIP-29 group. NIP-29 relays do
-// not honor a bare NIP-09 kind 5 for group content; deletion goes through this
+// relay to delete a single message from a NIP-29 group. NIP-29 relays do not
+// honor a bare NIP-09 kind 5 for group content; deletion goes through this
 // moderation event, which the relay authorizes (the author for their own
-// message, or a moderator). The group id is the "h" tag and each target message
-// id is an "e" tag.
-func buildGroupDeleteEvent(pubkey, groupID string, targetIDs []string, createdAt nostr.Timestamp) (*nostr.Event, error) {
+// message, or a moderator). The group id is the "h" tag and the target message
+// id is the "e" tag. A 9005 must reference exactly one target, so deleting
+// several messages means publishing one event per target.
+func buildGroupDeleteEvent(pubkey, groupID, targetID string, createdAt nostr.Timestamp) (*nostr.Event, error) {
 	if strings.TrimSpace(groupID) == "" {
 		return nil, errors.New("group id is empty")
 	}
-	if len(targetIDs) == 0 {
-		return nil, errors.New("no target event id")
+	if strings.TrimSpace(targetID) == "" {
+		return nil, errors.New("target id is empty")
 	}
 	ev := &nostr.Event{
 		PubKey:    pubkey,
 		CreatedAt: createdAt,
 		Kind:      nostr.KindSimpleGroupDeleteEvent,
-		Tags:      nostr.Tags{nostr.Tag{"h", groupID}},
-	}
-	for _, id := range targetIDs {
-		ev.Tags = append(ev.Tags, nostr.Tag{"e", id})
+		Tags: nostr.Tags{
+			nostr.Tag{"h", groupID},
+			nostr.Tag{"e", targetID},
+		},
 	}
 	return ev, nil
 }
@@ -337,14 +338,6 @@ func doGroupDelete(cCtx *cli.Context) error {
 		targetIDs = append(targetIDs, evp.ID)
 	}
 
-	ev, err := buildGroupDeleteEvent(pub, id, targetIDs, nostr.Now())
-	if err != nil {
-		return err
-	}
-	if err := cfg.signEvent(ev); err != nil {
-		return err
-	}
-
 	relays := writeRelays(cfg)
 	if len(relays) == 0 {
 		return errors.New("no write relays available")
@@ -353,19 +346,34 @@ func doGroupDelete(cCtx *cli.Context) error {
 	ctx := context.Background()
 	cfg.preAuth(ctx, relays)
 
-	var success int
-	for res := range cfg.pool.PublishMany(ctx, relays, *ev) {
-		if res.Error != nil {
-			fmt.Fprintln(os.Stderr, res.RelayURL, res.Error)
+	// A 9005 event references exactly one target, so publish one per message.
+	var failed int
+	for _, targetID := range targetIDs {
+		ev, err := buildGroupDeleteEvent(pub, id, targetID, nostr.Now())
+		if err != nil {
+			return err
+		}
+		if err := cfg.signEvent(ev); err != nil {
+			return err
+		}
+		var ok bool
+		for res := range cfg.pool.PublishMany(ctx, relays, *ev) {
+			if res.Error != nil {
+				fmt.Fprintln(os.Stderr, res.RelayURL, targetID, res.Error)
+			} else {
+				ok = true
+			}
+		}
+		if ok {
+			if cfg.verbose {
+				fmt.Println(ev.ID)
+			}
 		} else {
-			success++
+			failed++
 		}
 	}
-	if success == 0 {
-		return errors.New("cannot delete group message")
-	}
-	if cfg.verbose {
-		fmt.Println(ev.ID)
+	if failed > 0 {
+		return fmt.Errorf("failed to delete %d of %d message(s)", failed, len(targetIDs))
 	}
 	return nil
 }

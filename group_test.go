@@ -62,7 +62,7 @@ func TestBuildGroupPostEvent(t *testing.T) {
 
 func TestBuildGroupDeleteEvent(t *testing.T) {
 	const pub = "0000000000000000000000000000000000000000000000000000000000000001"
-	ev, err := buildGroupDeleteEvent(pub, "grp-42", []string{"aa", "bb"}, 999)
+	ev, err := buildGroupDeleteEvent(pub, "grp-42", "aa", 999)
 	if err != nil {
 		t.Fatalf("err=%v", err)
 	}
@@ -72,14 +72,15 @@ func TestBuildGroupDeleteEvent(t *testing.T) {
 	if h := findTag(ev.Tags, "h"); h == nil || len(h) < 2 || h[1] != "grp-42" {
 		t.Errorf("h tag=%v want [h grp-42]", h)
 	}
+	// A 9005 must reference exactly one target.
 	es := findAllTags(ev.Tags, "e")
-	if len(es) != 2 || es[0][1] != "aa" || es[1][1] != "bb" {
-		t.Errorf("e tags=%v want two targets aa,bb", es)
+	if len(es) != 1 || es[0][1] != "aa" {
+		t.Errorf("e tags=%v want single target aa", es)
 	}
-	if _, err := buildGroupDeleteEvent(pub, "grp", nil, 1); err == nil {
+	if _, err := buildGroupDeleteEvent(pub, "grp", "", 1); err == nil {
 		t.Errorf("no target: want error")
 	}
-	if _, err := buildGroupDeleteEvent(pub, "", []string{"aa"}, 1); err == nil {
+	if _, err := buildGroupDeleteEvent(pub, "", "aa", 1); err == nil {
 		t.Errorf("empty group id: want error")
 	}
 }
