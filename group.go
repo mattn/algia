@@ -14,6 +14,7 @@ import (
 	"github.com/urfave/cli/v2"
 
 	"github.com/nbd-wtf/go-nostr"
+	"github.com/nbd-wtf/go-nostr/sdk"
 )
 
 // groupInfo is the parsed form of a NIP-29 group metadata event (kind 39000).
@@ -289,6 +290,86 @@ func doGroupPost(cCtx *cli.Context) error {
 	return nil
 }
 
+// buildGroupDeleteEvent constructs an unsigned kind 9005 event that asks the
+// relay to delete one or more messages from a NIP-29 group. NIP-29 relays do
+// not honor a bare NIP-09 kind 5 for group content; deletion goes through this
+// moderation event, which the relay authorizes (the author for their own
+// message, or a moderator). The group id is the "h" tag and each target message
+// id is an "e" tag.
+func buildGroupDeleteEvent(pubkey, groupID string, targetIDs []string, createdAt nostr.Timestamp) (*nostr.Event, error) {
+	if strings.TrimSpace(groupID) == "" {
+		return nil, errors.New("group id is empty")
+	}
+	if len(targetIDs) == 0 {
+		return nil, errors.New("no target event id")
+	}
+	ev := &nostr.Event{
+		PubKey:    pubkey,
+		CreatedAt: createdAt,
+		Kind:      nostr.KindSimpleGroupDeleteEvent,
+		Tags:      nostr.Tags{nostr.Tag{"h", groupID}},
+	}
+	for _, id := range targetIDs {
+		ev.Tags = append(ev.Tags, nostr.Tag{"e", id})
+	}
+	return ev, nil
+}
+
+func doGroupDelete(cCtx *cli.Context) error {
+	id := cCtx.String("id")
+	if strings.TrimSpace(id) == "" || cCtx.Args().Len() == 0 {
+		return cli.ShowSubcommandHelp(cCtx)
+	}
+
+	cfg := cCtx.App.Metadata["config"].(*Config)
+
+	_, pub, err := getSkAndPub(cfg)
+	if err != nil {
+		return err
+	}
+
+	var targetIDs []string
+	for _, arg := range cCtx.Args().Slice() {
+		evp := sdk.InputToEventPointer(arg)
+		if evp == nil {
+			return fmt.Errorf("failed to parse event id from '%s'", arg)
+		}
+		targetIDs = append(targetIDs, evp.ID)
+	}
+
+	ev, err := buildGroupDeleteEvent(pub, id, targetIDs, nostr.Now())
+	if err != nil {
+		return err
+	}
+	if err := cfg.signEvent(ev); err != nil {
+		return err
+	}
+
+	relays := writeRelays(cfg)
+	if len(relays) == 0 {
+		return errors.New("no write relays available")
+	}
+
+	ctx := context.Background()
+	cfg.preAuth(ctx, relays)
+
+	var success int
+	for res := range cfg.pool.PublishMany(ctx, relays, *ev) {
+		if res.Error != nil {
+			fmt.Fprintln(os.Stderr, res.RelayURL, res.Error)
+		} else {
+			success++
+		}
+	}
+	if success == 0 {
+		return errors.New("cannot delete group message")
+	}
+	if cfg.verbose {
+		fmt.Println(ev.ID)
+	}
+	return nil
+}
+
 // groupCommand returns the "group" parent command with its subcommands (NIP-29).
 func groupCommand() *cli.Command {
 	return &cli.Command{
@@ -340,6 +421,16 @@ func groupCommand() *cli.Command {
 				UsageText: "algia group post --id [group id] [message]",
 				ArgsUsage: "[message]",
 				Action:    doGroupPost,
+			},
+			{
+				Name: "delete",
+				Flags: []cli.Flag{
+					&cli.StringFlag{Name: "id", Required: true, Usage: "group id (the h-tag value)"},
+				},
+				Usage:     "delete message(s) from a group (NIP-29 kind 9005)",
+				UsageText: "algia group delete --id [group id] <event id> [event id...]",
+				ArgsUsage: "<event id> [event id...]",
+				Action:    doGroupDelete,
 			},
 		},
 	}

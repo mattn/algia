@@ -60,6 +60,30 @@ func TestBuildGroupPostEvent(t *testing.T) {
 	}
 }
 
+func TestBuildGroupDeleteEvent(t *testing.T) {
+	const pub = "0000000000000000000000000000000000000000000000000000000000000001"
+	ev, err := buildGroupDeleteEvent(pub, "grp-42", []string{"aa", "bb"}, 999)
+	if err != nil {
+		t.Fatalf("err=%v", err)
+	}
+	if ev.Kind != nostr.KindSimpleGroupDeleteEvent {
+		t.Errorf("Kind=%d want %d", ev.Kind, nostr.KindSimpleGroupDeleteEvent)
+	}
+	if h := findTag(ev.Tags, "h"); h == nil || len(h) < 2 || h[1] != "grp-42" {
+		t.Errorf("h tag=%v want [h grp-42]", h)
+	}
+	es := findAllTags(ev.Tags, "e")
+	if len(es) != 2 || es[0][1] != "aa" || es[1][1] != "bb" {
+		t.Errorf("e tags=%v want two targets aa,bb", es)
+	}
+	if _, err := buildGroupDeleteEvent(pub, "grp", nil, 1); err == nil {
+		t.Errorf("no target: want error")
+	}
+	if _, err := buildGroupDeleteEvent(pub, "", []string{"aa"}, 1); err == nil {
+		t.Errorf("empty group id: want error")
+	}
+}
+
 func TestBuildGroupPostEvent_Errors(t *testing.T) {
 	const pub = "0000000000000000000000000000000000000000000000000000000000000001"
 	if _, err := buildGroupPostEvent(pub, "grp", "   ", 1); err == nil {
