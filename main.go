@@ -6,10 +6,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 	"runtime"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -46,6 +48,7 @@ type Relay struct {
 	Global   bool `json:"global"`
 	DM       bool `json:"dm"`
 	Bookmark bool `json:"bm"`
+	Auth     bool `json:"auth"`
 }
 
 // Config is
@@ -750,6 +753,8 @@ func (cfg *Config) QueryEvents(ctx context.Context, filters nostr.Filters) ([]*n
 		return nil, errors.New("no read relays available")
 	}
 
+	cfg.preAuth(ctx, relays)
+
 	seen := make(map[string]*nostr.Event)
 
 	if cfg.verbose {
@@ -812,6 +817,60 @@ func (cfg *Config) QueryEvents(ctx context.Context, filters nostr.Filters) ([]*n
 	return evs, nil
 }
 
+// authChallengeWait is how long to wait after connecting for a relay to send
+// its NIP-42 AUTH challenge before we sign and reply. The challenge arrives
+// unsolicited right after the connection opens; replying before it lands sends
+// an empty challenge, which some relays treat as a hard failure and then refuse
+// any further attempts, so we must let it arrive first.
+const authChallengeWait = 1 * time.Second
+
+// preAuth performs NIP-42 authentication up front against relays configured with
+// "auth": true. Such relays require authentication before they accept a
+// subscription and signal it with a NOTICE (not a CLOSED "auth-required:"),
+// which the pool's reactive auth handler never sees -- so without this, events
+// would silently never arrive. Relays without the flag are left untouched.
+func (cfg *Config) preAuth(ctx context.Context, relays []string) {
+	var sk string
+	if _, s, err := nip19.Decode(cfg.PrivateKey); err == nil {
+		sk = s.(string)
+	} else {
+		return
+	}
+
+	var wg sync.WaitGroup
+	for _, url := range relays {
+		if v, ok := cfg.Relays[url]; !ok || !v.Auth {
+			continue
+		}
+		wg.Add(1)
+		go func(url string) {
+			defer wg.Done()
+			relay, err := cfg.pool.EnsureRelay(url)
+			if err != nil {
+				return
+			}
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(authChallengeWait):
+			}
+			actx, cancel := context.WithTimeout(ctx, 3*time.Second)
+			defer cancel()
+			err = relay.Auth(actx, func(ev *nostr.Event) error {
+				return ev.Sign(sk)
+			})
+			if cfg.verbose {
+				if err == nil {
+					fmt.Fprintln(os.Stderr, "authenticated to", url)
+				} else {
+					fmt.Fprintln(os.Stderr, "auth failed for", url+":", err)
+				}
+			}
+		}(url)
+	}
+	wg.Wait()
+}
+
 // StreamEvents streams events as they arrive, calling the callback for each new event
 // If closeOnEOSE is true, it stops after receiving EOSE from all relays
 func (cfg *Config) StreamEvents(filters nostr.Filters, closeOnEOSE bool, callback func(*nostr.Event) bool) error {
@@ -865,6 +924,8 @@ func (cfg *Config) StreamEvents(filters nostr.Filters, closeOnEOSE bool, callbac
 	if len(relays) == 0 {
 		return errors.New("no read relays available")
 	}
+
+	cfg.preAuth(ctx, relays)
 
 	// Choose SubMany or SubManyEose based on closeOnEOSE flag
 	var eventChan chan nostr.RelayEvent
@@ -1361,10 +1422,24 @@ func main() {
 			if strings.TrimSpace(relays) != "" {
 				cfg.Relays = make(map[string]Relay)
 				for _, relay := range strings.Split(relays, ",") {
-					cfg.Relays[relay] = Relay{
-						Read:  true,
-						Write: true,
+					relay = strings.TrimSpace(relay)
+					if relay == "" {
+						continue
 					}
+					r := Relay{Read: true, Write: true}
+					// Support "wss://host?auth=true" to require NIP-42 auth for
+					// that relay. The auth flag is stripped from the URL used to
+					// connect; any other query is preserved.
+					if u, err := url.Parse(relay); err == nil && u.Query().Has("auth") {
+						q := u.Query()
+						if b, _ := strconv.ParseBool(q.Get("auth")); b {
+							r.Auth = true
+						}
+						q.Del("auth")
+						u.RawQuery = q.Encode()
+						relay = strings.TrimSuffix(u.String(), "?")
+					}
+					cfg.Relays[relay] = r
 				}
 				cfg.tempRelay = true
 			}
