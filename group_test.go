@@ -123,6 +123,52 @@ func TestBuildGroupReactEvent(t *testing.T) {
 	}
 }
 
+func TestBuildGroupJoinEvent(t *testing.T) {
+	const pub = "0000000000000000000000000000000000000000000000000000000000000001"
+	ev, err := buildGroupJoinEvent(pub, "grp-42", "", 9)
+	if err != nil {
+		t.Fatalf("err=%v", err)
+	}
+	if ev.Kind != nostr.KindSimpleGroupJoinRequest {
+		t.Errorf("Kind=%d want %d", ev.Kind, nostr.KindSimpleGroupJoinRequest)
+	}
+	if h := findTag(ev.Tags, "h"); h == nil || len(h) < 2 || h[1] != "grp-42" {
+		t.Errorf("h tag=%v want [h grp-42]", h)
+	}
+	if c := findTag(ev.Tags, "code"); c != nil {
+		t.Errorf("code tag=%v want none", c)
+	}
+
+	ev, err = buildGroupJoinEvent(pub, "grp", "invite123", 9)
+	if err != nil {
+		t.Fatalf("err=%v", err)
+	}
+	if c := findTag(ev.Tags, "code"); c == nil || len(c) < 2 || c[1] != "invite123" {
+		t.Errorf("code tag=%v want [code invite123]", c)
+	}
+
+	if _, err := buildGroupJoinEvent(pub, "", "", 9); err == nil {
+		t.Errorf("empty group id: want error")
+	}
+}
+
+func TestBuildGroupLeaveEvent(t *testing.T) {
+	const pub = "0000000000000000000000000000000000000000000000000000000000000001"
+	ev, err := buildGroupLeaveEvent(pub, "grp-42", 9)
+	if err != nil {
+		t.Fatalf("err=%v", err)
+	}
+	if ev.Kind != nostr.KindSimpleGroupLeaveRequest {
+		t.Errorf("Kind=%d want %d", ev.Kind, nostr.KindSimpleGroupLeaveRequest)
+	}
+	if h := findTag(ev.Tags, "h"); h == nil || len(h) < 2 || h[1] != "grp-42" {
+		t.Errorf("h tag=%v want [h grp-42]", h)
+	}
+	if _, err := buildGroupLeaveEvent(pub, "", 9); err == nil {
+		t.Errorf("empty group id: want error")
+	}
+}
+
 func TestBuildGroupPostEvent_Errors(t *testing.T) {
 	const pub = "0000000000000000000000000000000000000000000000000000000000000001"
 	if _, err := buildGroupPostEvent(pub, "grp", "   ", 1); err == nil {
