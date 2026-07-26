@@ -6,10 +6,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 	"runtime"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -1420,10 +1422,24 @@ func main() {
 			if strings.TrimSpace(relays) != "" {
 				cfg.Relays = make(map[string]Relay)
 				for _, relay := range strings.Split(relays, ",") {
-					cfg.Relays[relay] = Relay{
-						Read:  true,
-						Write: true,
+					relay = strings.TrimSpace(relay)
+					if relay == "" {
+						continue
 					}
+					r := Relay{Read: true, Write: true}
+					// Support "wss://host?auth=true" to require NIP-42 auth for
+					// that relay. The auth flag is stripped from the URL used to
+					// connect; any other query is preserved.
+					if u, err := url.Parse(relay); err == nil && u.Query().Has("auth") {
+						q := u.Query()
+						if b, _ := strconv.ParseBool(q.Get("auth")); b {
+							r.Auth = true
+						}
+						q.Del("auth")
+						u.RawQuery = q.Encode()
+						relay = strings.TrimSuffix(u.String(), "?")
+					}
+					cfg.Relays[relay] = r
 				}
 				cfg.tempRelay = true
 			}
