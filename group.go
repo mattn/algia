@@ -177,9 +177,11 @@ func doGroupStream(cCtx *cli.Context) error {
 	}
 
 	ctx := context.Background()
+	// Capture the start time before authenticating so messages posted during
+	// the (brief) pre-auth handshake are not missed once we subscribe.
+	since := nostr.Now()
 	cfg.preAuth(ctx, relays)
 
-	since := nostr.Now()
 	sub := cfg.pool.SubMany(ctx, relays, nostr.Filters{{
 		Kinds: []int{nostr.KindSimpleGroupChatMessage},
 		Tags:  nostr.TagMap{"h": []string{id}},
@@ -259,35 +261,7 @@ func doGroupPost(cCtx *cli.Context) error {
 	if err != nil {
 		return err
 	}
-	if err := cfg.signEvent(ev); err != nil {
-		return err
-	}
-
-	relays := writeRelays(cfg)
-	if len(relays) == 0 {
-		return errors.New("no write relays available")
-	}
-
-	ctx := context.Background()
-	// NIP-29 relays require NIP-42 auth to accept messages; authenticate the
-	// write relays up front. PublishMany also re-auths reactively as a fallback.
-	cfg.preAuth(ctx, relays)
-
-	var success int
-	for res := range cfg.pool.PublishMany(ctx, relays, *ev) {
-		if res.Error != nil {
-			fmt.Fprintln(os.Stderr, res.RelayURL, res.Error)
-		} else {
-			success++
-		}
-	}
-	if success == 0 {
-		return errors.New("cannot post to group")
-	}
-	if cfg.verbose {
-		fmt.Println(ev.ID)
-	}
-	return nil
+	return cfg.publishGroupEvent(ev, "cannot post to group")
 }
 
 // buildGroupDeleteEvent constructs an unsigned kind 9005 event that asks the
@@ -434,15 +408,53 @@ func doGroupReact(cCtx *cli.Context) error {
 	if err != nil {
 		return err
 	}
+	return cfg.publishGroupEvent(ev, "cannot react to group message")
+}
+
+// buildGroupJoinEvent constructs an unsigned kind 9021 join request for a
+// NIP-29 group. An open group admits the sender immediately; a closed group
+// queues the request for a moderator. An optional invite code goes into a
+// "code" tag.
+func buildGroupJoinEvent(pubkey, groupID, code string, createdAt nostr.Timestamp) (*nostr.Event, error) {
+	if strings.TrimSpace(groupID) == "" {
+		return nil, errors.New("group id is empty")
+	}
+	ev := &nostr.Event{
+		PubKey:    pubkey,
+		CreatedAt: createdAt,
+		Kind:      nostr.KindSimpleGroupJoinRequest,
+		Tags:      nostr.Tags{nostr.Tag{"h", groupID}},
+	}
+	if strings.TrimSpace(code) != "" {
+		ev.Tags = append(ev.Tags, nostr.Tag{"code", code})
+	}
+	return ev, nil
+}
+
+// buildGroupLeaveEvent constructs an unsigned kind 9022 leave request.
+func buildGroupLeaveEvent(pubkey, groupID string, createdAt nostr.Timestamp) (*nostr.Event, error) {
+	if strings.TrimSpace(groupID) == "" {
+		return nil, errors.New("group id is empty")
+	}
+	return &nostr.Event{
+		PubKey:    pubkey,
+		CreatedAt: createdAt,
+		Kind:      nostr.KindSimpleGroupLeaveRequest,
+		Tags:      nostr.Tags{nostr.Tag{"h", groupID}},
+	}, nil
+}
+
+// publishGroupEvent signs ev and publishes it to the write relays, pre-authing
+// first so NIP-29 relays that require auth accept it. Returns an error if no
+// relay accepted the event. failMsg names the operation for the error.
+func (cfg *Config) publishGroupEvent(ev *nostr.Event, failMsg string) error {
 	if err := cfg.signEvent(ev); err != nil {
 		return err
 	}
-
 	relays := writeRelays(cfg)
 	if len(relays) == 0 {
 		return errors.New("no write relays available")
 	}
-
 	ctx := context.Background()
 	cfg.preAuth(ctx, relays)
 
@@ -455,12 +467,46 @@ func doGroupReact(cCtx *cli.Context) error {
 		}
 	}
 	if success == 0 {
-		return errors.New("cannot react to group message")
+		return errors.New(failMsg)
 	}
 	if cfg.verbose {
 		fmt.Println(ev.ID)
 	}
 	return nil
+}
+
+func doGroupJoin(cCtx *cli.Context) error {
+	id := cCtx.String("id")
+	if strings.TrimSpace(id) == "" {
+		return cli.ShowSubcommandHelp(cCtx)
+	}
+	cfg := cCtx.App.Metadata["config"].(*Config)
+	_, pub, err := getSkAndPub(cfg)
+	if err != nil {
+		return err
+	}
+	ev, err := buildGroupJoinEvent(pub, id, cCtx.String("code"), nostr.Now())
+	if err != nil {
+		return err
+	}
+	return cfg.publishGroupEvent(ev, "cannot join group")
+}
+
+func doGroupLeave(cCtx *cli.Context) error {
+	id := cCtx.String("id")
+	if strings.TrimSpace(id) == "" {
+		return cli.ShowSubcommandHelp(cCtx)
+	}
+	cfg := cCtx.App.Metadata["config"].(*Config)
+	_, pub, err := getSkAndPub(cfg)
+	if err != nil {
+		return err
+	}
+	ev, err := buildGroupLeaveEvent(pub, id, nostr.Now())
+	if err != nil {
+		return err
+	}
+	return cfg.publishGroupEvent(ev, "cannot leave group")
 }
 
 // groupCommand returns the "group" parent command with its subcommands (NIP-29).
@@ -536,6 +582,25 @@ func groupCommand() *cli.Command {
 				Usage:     "react to a message in a group (NIP-29 kind 7)",
 				UsageText: "algia group react --id [group id] --target [message id] [--content +]",
 				Action:    doGroupReact,
+			},
+			{
+				Name: "join",
+				Flags: []cli.Flag{
+					&cli.StringFlag{Name: "id", Required: true, Usage: "group id (the h-tag value)"},
+					&cli.StringFlag{Name: "code", Usage: "invite code (for closed groups)"},
+				},
+				Usage:     "request to join a group (NIP-29 kind 9021)",
+				UsageText: "algia group join --id [group id] [--code <invite>]",
+				Action:    doGroupJoin,
+			},
+			{
+				Name: "leave",
+				Flags: []cli.Flag{
+					&cli.StringFlag{Name: "id", Required: true, Usage: "group id (the h-tag value)"},
+				},
+				Usage:     "leave a group (NIP-29 kind 9022)",
+				UsageText: "algia group leave --id [group id]",
+				Action:    doGroupLeave,
 			},
 		},
 	}

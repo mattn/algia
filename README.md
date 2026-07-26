@@ -29,7 +29,7 @@ COMMANDS:
    bm            bookmarks (list/post)
    list          lists (list/show/add/remove/delete)
    channel       public chat channels (create/list/timeline/stream/post)
-   group         relay-based groups / channels (list/timeline/stream/post/delete/react)
+   group         relay-based groups / channels (list/timeline/stream/post/delete/react/join/leave)
    file          Blossom/NIP-96 media servers (upload/list/get/delete/check/mirror)
    profile       show profile
    powa          post ぽわ〜
