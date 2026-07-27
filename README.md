@@ -132,6 +132,19 @@ algia file mirror --from https://other.blossom.server
 algia file mirror --nip96 --from https://nostrcheck.me
 ```
 
+Post commands can upload and attach images inline with `-i`/`--image`
+(repeatable). Each file is uploaded and its URL is appended to the note along
+with a NIP-92 `imeta` tag. By default `post` and `channel post` upload to the
+configured `file-servers` (override with `-s`/`--server`), while `group post`
+uploads to the group relay's own media store (e.g. a Buzz relay's `/media`).
+
+```
+algia post -i ./a.png -i ./b.png "two images"
+algia channel post --id <channel> -i ./pic.png "with a picture"
+algia group post --id <group> -i ./pic.png "posted to a NIP-29 group"
+algia post -i ./only.png                      # image-only note (no text)
+```
+
 If you want to zap via Nostr Wallet Connect, please add `nwc-uri` which are provided from <https://nwc.getalby.com/apps/new?c=Algia>
 
 ```json

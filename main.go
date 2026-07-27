@@ -1183,6 +1183,8 @@ func main() {
 					&cli.StringSliceFlag{Name: "emoji"},
 					&cli.StringFlag{Name: "geohash"},
 					&cli.StringSliceFlag{Name: "tag", Aliases: []string{"t"}, Usage: "tag (key=value1;value2)"},
+					&cli.StringSliceFlag{Name: "image", Aliases: []string{"i"}, Usage: "image file(s) to upload and attach (repeatable)"},
+					&cli.StringSliceFlag{Name: "server", Aliases: []string{"s"}, Usage: "media server override (default: configured file-servers)"},
 					&cli.StringFlag{Name: "article-name"},
 					&cli.StringFlag{Name: "article-title"},
 					&cli.StringFlag{Name: "article-summary"},

@@ -141,6 +141,144 @@ func resolveClients(cCtx *cli.Context, cfg *Config) ([]serverClient, error) {
 	return scs, nil
 }
 
+// mediaClientsFor builds media clients from an explicit server list, or from the
+// configured file-servers when none are given. Unlike resolveClients it takes no
+// cli.Context, so it can be used from the post/channel/group post paths.
+func mediaClientsFor(cfg *Config, servers []string) ([]serverClient, error) {
+	var fss []fileServer
+	if len(servers) > 0 {
+		for _, s := range servers {
+			fss = append(fss, parseFileServer(s))
+		}
+	} else if len(cfg.FileServers) > 0 {
+		fss = cfg.FileServers
+	} else {
+		return nil, errors.New("no media server configured; set \"file-servers\" in config or pass --server")
+	}
+	scs := make([]serverClient, 0, len(fss))
+	for _, fs := range fss {
+		client, err := newMediaClient(cfg, fs)
+		if err != nil {
+			return nil, err
+		}
+		scs = append(scs, serverClient{server: fs, client: client})
+	}
+	return scs, nil
+}
+
+// relayHTTPBase converts a relay websocket URL to its HTTP(S) base.
+func relayHTTPBase(relay string) string {
+	if strings.HasPrefix(relay, "wss://") {
+		return "https://" + strings.TrimPrefix(relay, "wss://")
+	}
+	if strings.HasPrefix(relay, "ws://") {
+		return "http://" + strings.TrimPrefix(relay, "ws://")
+	}
+	return relay
+}
+
+// relayMediaClients targets the group relay's built-in Blossom media store
+// (e.g. Buzz's "/media"). It prefers an auth-required write relay (the typical
+// NIP-29 group host) and falls back to any write relay.
+func relayMediaClients(cfg *Config) ([]serverClient, error) {
+	chosen := ""
+	for u, r := range cfg.Relays {
+		if r.Write && r.Auth && (chosen == "" || u < chosen) {
+			chosen = u
+		}
+	}
+	if chosen == "" {
+		chosen = firstWriteRelay(cfg)
+	}
+	if chosen == "" {
+		return nil, errors.New("no write relay available for media upload")
+	}
+	fs := fileServer{URL: relayHTTPBase(chosen) + "/media", Type: typeBlossom}
+	client, err := newMediaClient(cfg, fs)
+	if err != nil {
+		return nil, err
+	}
+	return []serverClient{{server: fs, client: client}}, nil
+}
+
+// uploadImages uploads each local path and returns the resulting blob
+// descriptors. Target selection follows the "smart default" rule: an explicit
+// server list wins; otherwise group posts (relayMedia) go to the relay's own
+// media store and other posts go to the configured file-servers. Each image is
+// uploaded to the first server that accepts it.
+func uploadImages(cfg *Config, paths, servers []string, relayMedia bool) ([]*blossom.BlobDescriptor, error) {
+	if len(paths) == 0 {
+		return nil, nil
+	}
+	var clients []serverClient
+	var err error
+	if len(servers) == 0 && relayMedia {
+		clients, err = relayMediaClients(cfg)
+	} else {
+		clients, err = mediaClientsFor(cfg, servers)
+	}
+	if err != nil {
+		return nil, err
+	}
+	if len(clients) == 0 {
+		return nil, errors.New("no media server available for upload")
+	}
+
+	ctx := context.Background()
+	var out []*blossom.BlobDescriptor
+	for _, p := range paths {
+		var bd *blossom.BlobDescriptor
+		for _, sc := range clients {
+			d, e := sc.client.Upload(ctx, p)
+			if e == nil {
+				bd = d
+				break
+			}
+			fmt.Fprintf(os.Stderr, "%s: %s: %v\n", sc.server.URL, p, e)
+		}
+		if bd == nil {
+			return nil, fmt.Errorf("failed to upload %s", p)
+		}
+		out = append(out, bd)
+	}
+	return out, nil
+}
+
+// appendImageURLs appends each uploaded image URL to content, one per line, so
+// clients that render URLs show the images inline.
+func appendImageURLs(content string, bds []*blossom.BlobDescriptor) string {
+	for _, bd := range bds {
+		if bd == nil || bd.URL == "" {
+			continue
+		}
+		if strings.TrimSpace(content) != "" {
+			content += "\n"
+		}
+		content += bd.URL
+	}
+	return content
+}
+
+// addImetaTags adds a NIP-92 "imeta" tag describing each uploaded image.
+func addImetaTags(ev *nostr.Event, bds []*blossom.BlobDescriptor) {
+	for _, bd := range bds {
+		if bd == nil || bd.URL == "" {
+			continue
+		}
+		imeta := nostr.Tag{"imeta", "url " + bd.URL}
+		if bd.Type != "" {
+			imeta = append(imeta, "m "+bd.Type)
+		}
+		if bd.SHA256 != "" {
+			imeta = append(imeta, "x "+bd.SHA256)
+		}
+		if bd.Size > 0 {
+			imeta = append(imeta, "size "+strconv.Itoa(bd.Size))
+		}
+		ev.Tags = append(ev.Tags, imeta)
+	}
+}
+
 // printBlob writes a blob descriptor: JSON when --json is set, else its URL.
 func printBlob(cCtx *cli.Context, bd *blossom.BlobDescriptor) {
 	if cCtx.Bool("json") {
@@ -158,7 +296,20 @@ type blossomMediaClient struct {
 }
 
 func (b *blossomMediaClient) Upload(ctx context.Context, path string) (*blossom.BlobDescriptor, error) {
-	return b.c.UploadFile(ctx, path)
+	// Use algia's own BUD-02 PUT (via blossomUploadData) rather than the
+	// library helper so the BUD-11 "X-SHA-256" header is sent, which servers
+	// like Buzz require. The claimed hash is the sha256 of the file bytes.
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	sum := sha256.Sum256(data)
+	hash := hex.EncodeToString(sum[:])
+	contentType := mime.TypeByExtension(filepath.Ext(path))
+	if contentType == "" {
+		contentType = http.DetectContentType(data)
+	}
+	return blossomUploadData(ctx, b.sk, b.server, data, contentType, hash)
 }
 
 // List enumerates every blob the user owns. blossom.Client.List issues a single
@@ -726,6 +877,9 @@ func blossomPutBlob(ctx context.Context, sk, url string, body []byte, contentTyp
 	b, _, err := httpDo(ctx, "PUT", url, body, map[string]string{
 		"Content-Type":  contentType,
 		"Authorization": auth,
+		// BUD-11 servers (e.g. Buzz) require the claimed hash in a header;
+		// other Blossom servers ignore it.
+		"X-SHA-256": hash,
 	})
 	if err != nil {
 		return nil, err

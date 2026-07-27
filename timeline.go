@@ -40,7 +40,8 @@ func firstRelayHint(hints []string, fallback string) string {
 
 func doPost(cCtx *cli.Context) error {
 	stdin := cCtx.Bool("stdin")
-	if !stdin && cCtx.Args().Len() == 0 {
+	images := cCtx.StringSlice("image")
+	if !stdin && cCtx.Args().Len() == 0 && len(images) == 0 {
 		return cli.ShowSubcommandHelp(cCtx)
 	}
 	articleName := cCtx.String("article-name")
@@ -72,6 +73,8 @@ func doPost(cCtx *cli.Context) error {
 		emoji:          cCtx.StringSlice("emoji"),
 		us:             cCtx.StringSlice("u"),
 		tags:           cCtx.StringSlice("tag"),
+		images:         images,
+		servers:        cCtx.StringSlice("server"),
 		createdAt:      nostr.Timestamp(cCtx.Int64("created-at")),
 	})
 }
@@ -88,6 +91,8 @@ type postArg struct {
 	emoji          []string
 	us             []string
 	tags           []string
+	images         []string
+	servers        []string
 	createdAt      nostr.Timestamp
 }
 
@@ -106,10 +111,20 @@ func callPost(arg *postArg) error {
 	if createdAt == 0 {
 		createdAt = nostr.Now()
 	}
+
+	// Upload any images to the configured file-servers (or --server) and fold
+	// their URLs into the content before the event is built.
+	bds, err := uploadImages(arg.cfg, arg.images, arg.servers, false)
+	if err != nil {
+		return err
+	}
+	arg.content = appendImageURLs(arg.content, bds)
+
 	ev, err := buildPostEvent(arg, pub, mentionPubkeys, createdAt)
 	if err != nil {
 		return err
 	}
+	addImetaTags(ev, bds)
 	if err := arg.cfg.signEvent(ev); err != nil {
 		return err
 	}
