@@ -362,7 +362,8 @@ func doChannelPost(cCtx *cli.Context) error {
 	id := cCtx.String("id")
 	reply := cCtx.String("reply")
 	stdin := cCtx.Bool("stdin")
-	if !stdin && cCtx.Args().Len() == 0 {
+	images := cCtx.StringSlice("image")
+	if !stdin && cCtx.Args().Len() == 0 && len(images) == 0 {
 		return cli.ShowSubcommandHelp(cCtx)
 	}
 
@@ -407,6 +408,14 @@ func doChannelPost(cCtx *cli.Context) error {
 		return err
 	}
 
+	// Public chat channels live on regular relays, so images go to the
+	// configured file-servers (or --server), not any group media store.
+	bds, err := uploadImages(cfg, images, cCtx.StringSlice("server"), false)
+	if err != nil {
+		return err
+	}
+	content = appendImageURLs(content, bds)
+
 	ev, err := buildChannelPostEvent(pub, channelPostOpts{
 		Content:        content,
 		ChannelID:      channelID,
@@ -421,6 +430,7 @@ func doChannelPost(cCtx *cli.Context) error {
 	if err != nil {
 		return err
 	}
+	addImetaTags(ev, bds)
 	if err := cfg.signEvent(ev); err != nil {
 		return err
 	}
@@ -506,6 +516,8 @@ func channelCommand() *cli.Command {
 					&cli.StringSliceFlag{Name: "emoji"},
 					&cli.StringFlag{Name: "geohash"},
 					&cli.StringSliceFlag{Name: "tag", Aliases: []string{"t"}, Usage: "tag (key=value1;value2)"},
+					&cli.StringSliceFlag{Name: "image", Aliases: []string{"i"}, Usage: "image file(s) to upload and attach (repeatable)"},
+					&cli.StringSliceFlag{Name: "server", Aliases: []string{"s"}, Usage: "media server override (default: configured file-servers)"},
 					&cli.Int64Flag{Name: "created-at", Usage: "override created_at (unix timestamp)"},
 				},
 				Usage:     "post a message to a channel (NIP-28 kind 42)",

@@ -235,7 +235,8 @@ func buildGroupPostEvent(pubkey, groupID, content string, createdAt nostr.Timest
 func doGroupPost(cCtx *cli.Context) error {
 	id := cCtx.String("id")
 	stdin := cCtx.Bool("stdin")
-	if strings.TrimSpace(id) == "" || (!stdin && cCtx.Args().Len() == 0) {
+	images := cCtx.StringSlice("image")
+	if strings.TrimSpace(id) == "" || (!stdin && cCtx.Args().Len() == 0 && len(images) == 0) {
 		return cli.ShowSubcommandHelp(cCtx)
 	}
 
@@ -257,10 +258,20 @@ func doGroupPost(cCtx *cli.Context) error {
 		content = strings.Join(cCtx.Args().Slice(), "\n")
 	}
 
+	// Upload images (group posts default to the relay's own media store) and
+	// fold their URLs into the content before building the event.
+	bds, err := uploadImages(cfg, images, cCtx.StringSlice("server"), true)
+	if err != nil {
+		return err
+	}
+	content = appendImageURLs(content, bds)
+
 	ev, err := buildGroupPostEvent(pub, id, content, nostr.Now())
 	if err != nil {
 		return err
 	}
+	addImetaTags(ev, bds)
+
 	return cfg.publishGroupEvent(ev, "cannot post to group")
 }
 
@@ -555,9 +566,11 @@ func groupCommand() *cli.Command {
 				Flags: []cli.Flag{
 					&cli.StringFlag{Name: "id", Required: true, Usage: "group id (the h-tag value)"},
 					&cli.BoolFlag{Name: "stdin"},
+					&cli.StringSliceFlag{Name: "image", Aliases: []string{"i"}, Usage: "image file(s) to upload and attach (repeatable)"},
+					&cli.StringSliceFlag{Name: "server", Aliases: []string{"s"}, Usage: "media server override (default: the group relay's media store)"},
 				},
 				Usage:     "post a message to a group (NIP-29 kind 9)",
-				UsageText: "algia group post --id [group id] [message]",
+				UsageText: "algia group post --id [group id] [-i <image>...] [message]",
 				ArgsUsage: "[message]",
 				Action:    doGroupPost,
 			},
