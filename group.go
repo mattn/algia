@@ -176,27 +176,10 @@ func doGroupStream(cCtx *cli.Context) error {
 		return errors.New("no read relays available")
 	}
 
-	ctx := context.Background()
-	// Capture the start time before authenticating so messages posted during
-	// the (brief) pre-auth handshake are not missed once we subscribe.
-	since := nostr.Now()
-	cfg.preAuth(ctx, relays)
-
-	sub := cfg.pool.SubMany(ctx, relays, nostr.Filters{{
+	cfg.StreamLive(relays, nostr.Filter{
 		Kinds: []int{nostr.KindSimpleGroupChatMessage},
 		Tags:  nostr.TagMap{"h": []string{id}},
-		Since: &since,
-	}})
-	for ie := range sub {
-		if ie.Event == nil {
-			continue
-		}
-		if j {
-			json.NewEncoder(os.Stdout).Encode(ie.Event)
-		} else {
-			cfg.PrintEvent(ie.Event, false, false)
-		}
-	}
+	}, j)
 	return nil
 }
 

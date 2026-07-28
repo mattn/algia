@@ -978,6 +978,31 @@ func (cfg *Config) StreamEvents(filters nostr.Filters, closeOnEOSE bool, callbac
 	return nil
 }
 
+// StreamLive subscribes to the given filter and prints only messages created
+// after it starts. It filters both server-side (Since) and client-side
+// (created_at), so nothing older than the start time is ever emitted — this
+// also suppresses backlog replays that the pool triggers when it silently
+// reconnects a dropped subscription. Auth-required relays are authenticated
+// first. It blocks until the subscription ends.
+func (cfg *Config) StreamLive(relays []string, filter nostr.Filter, j bool) {
+	ctx := context.Background()
+	cfg.preAuth(ctx, relays)
+
+	since := nostr.Now()
+	filter.Since = &since
+	sub := cfg.pool.SubMany(ctx, relays, nostr.Filters{filter})
+	for ie := range sub {
+		if ie.Event == nil || ie.Event.CreatedAt < since {
+			continue
+		}
+		if j {
+			json.NewEncoder(os.Stdout).Encode(ie.Event)
+		} else {
+			cfg.PrintEvent(ie.Event, false, false)
+		}
+	}
+}
+
 func doVersion(cCtx *cli.Context) error {
 	fmt.Println(version)
 	return nil
