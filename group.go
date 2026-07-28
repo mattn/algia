@@ -176,34 +176,17 @@ func doGroupStream(cCtx *cli.Context) error {
 		return errors.New("no read relays available")
 	}
 
-	ctx := context.Background()
-	// Capture the start time before authenticating so messages posted during
-	// the (brief) pre-auth handshake are not missed once we subscribe.
-	since := nostr.Now()
-	cfg.preAuth(ctx, relays)
-
-	sub := cfg.pool.SubMany(ctx, relays, nostr.Filters{{
+	cfg.StreamLive(relays, nostr.Filter{
 		Kinds: []int{nostr.KindSimpleGroupChatMessage},
 		Tags:  nostr.TagMap{"h": []string{id}},
-		Since: &since,
-	}})
-	for ie := range sub {
-		if ie.Event == nil {
-			continue
-		}
-		if j {
-			json.NewEncoder(os.Stdout).Encode(ie.Event)
-		} else {
-			cfg.PrintEvent(ie.Event, false, false)
-		}
-	}
+	}, j)
 	return nil
 }
 
 // buildGroupPostEvent constructs an unsigned kind 9 message for a NIP-29 group.
 // The group id goes into the "h" tag; links and hashtags in the content are
 // auto-attached like the other post builders.
-func buildGroupPostEvent(pubkey, groupID, content string, createdAt nostr.Timestamp) (*nostr.Event, error) {
+func buildGroupPostEvent(pubkey, groupID, content, replyID string, createdAt nostr.Timestamp) (*nostr.Event, error) {
 	if strings.TrimSpace(content) == "" {
 		return nil, errors.New("content is empty")
 	}
@@ -218,6 +201,13 @@ func buildGroupPostEvent(pubkey, groupID, content string, createdAt nostr.Timest
 		Content:   content,
 	}
 	clientTag(ev)
+
+	// Reply: reference the message being replied to with a NIP-10 marked "e"
+	// tag. Buzz recognizes a reply only with the "reply" marker (the empty 3rd
+	// element is the relay hint), i.e. ["e", <id>, "", "reply"].
+	if replyID != "" {
+		ev.Tags = ev.Tags.AppendUnique(nostr.Tag{"e", replyID, "", "reply"})
+	}
 
 	for _, entry := range extractLinks(ev.Content) {
 		ev.Tags = ev.Tags.AppendUnique(nostr.Tag{"r", entry.text})
@@ -266,7 +256,16 @@ func doGroupPost(cCtx *cli.Context) error {
 	}
 	content = appendImageURLs(content, bds)
 
-	ev, err := buildGroupPostEvent(pub, id, content, nostr.Now())
+	var replyID string
+	if r := cCtx.String("reply"); r != "" {
+		evp := sdk.InputToEventPointer(r)
+		if evp == nil {
+			return fmt.Errorf("failed to parse reply event id from '%s'", r)
+		}
+		replyID = evp.ID
+	}
+
+	ev, err := buildGroupPostEvent(pub, id, content, replyID, nostr.Now())
 	if err != nil {
 		return err
 	}
@@ -566,11 +565,12 @@ func groupCommand() *cli.Command {
 				Flags: []cli.Flag{
 					&cli.StringFlag{Name: "id", Required: true, Usage: "group id (the h-tag value)"},
 					&cli.BoolFlag{Name: "stdin"},
+					&cli.StringFlag{Name: "reply", Usage: "reply to a message id (note/nevent/hex)"},
 					&cli.StringSliceFlag{Name: "image", Aliases: []string{"i"}, Usage: "image file(s) to upload and attach (repeatable)"},
 					&cli.StringSliceFlag{Name: "server", Aliases: []string{"s"}, Usage: "media server override (default: the group relay's media store)"},
 				},
 				Usage:     "post a message to a group (NIP-29 kind 9)",
-				UsageText: "algia group post --id [group id] [-i <image>...] [message]",
+				UsageText: "algia group post --id [group id] [--reply <id>] [-i <image>...] [message]",
 				ArgsUsage: "[message]",
 				Action:    doGroupPost,
 			},

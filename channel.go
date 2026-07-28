@@ -337,24 +337,10 @@ func doChannelStream(cCtx *cli.Context) error {
 		return errors.New("no read relays available")
 	}
 
-	since := nostr.Now()
-	filter := nostr.Filter{
+	cfg.StreamLive(relays, nostr.Filter{
 		Kinds: []int{nostr.KindChannelMessage},
 		Tags:  nostr.TagMap{"e": []string{channelID}},
-		Since: &since,
-	}
-
-	sub := cfg.pool.SubMany(context.Background(), relays, nostr.Filters{filter})
-	for ie := range sub {
-		if ie.Event == nil {
-			continue
-		}
-		if j {
-			json.NewEncoder(os.Stdout).Encode(ie.Event)
-		} else {
-			cfg.PrintEvent(ie.Event, false, false)
-		}
-	}
+	}, j)
 	return nil
 }
 

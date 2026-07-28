@@ -41,7 +41,7 @@ func TestParseGroupMetadata(t *testing.T) {
 
 func TestBuildGroupPostEvent(t *testing.T) {
 	const pub = "0000000000000000000000000000000000000000000000000000000000000001"
-	ev, err := buildGroupPostEvent(pub, "grp-42", "hello #nostr https://example.com", 12345)
+	ev, err := buildGroupPostEvent(pub, "grp-42", "hello #nostr https://example.com", "", 12345)
 	if err != nil {
 		t.Fatalf("err=%v", err)
 	}
@@ -169,12 +169,31 @@ func TestBuildGroupLeaveEvent(t *testing.T) {
 	}
 }
 
+func TestBuildGroupPostEvent_Reply(t *testing.T) {
+	const pub = "0000000000000000000000000000000000000000000000000000000000000001"
+	ev, err := buildGroupPostEvent(pub, "grp-42", "ｶﾞｯ", "targetid", 12345)
+	if err != nil {
+		t.Fatalf("err=%v", err)
+	}
+	e := findTag(ev.Tags, "e")
+	// Buzz recognizes a reply only with the NIP-10 "reply" marker.
+	want := nostr.Tag{"e", "targetid", "", "reply"}
+	if e == nil || len(e) != len(want) {
+		t.Fatalf("e tag=%v want %v", e, want)
+	}
+	for i := range want {
+		if e[i] != want[i] {
+			t.Errorf("e[%d]=%q want %q", i, e[i], want[i])
+		}
+	}
+}
+
 func TestBuildGroupPostEvent_Errors(t *testing.T) {
 	const pub = "0000000000000000000000000000000000000000000000000000000000000001"
-	if _, err := buildGroupPostEvent(pub, "grp", "   ", 1); err == nil {
+	if _, err := buildGroupPostEvent(pub, "grp", "   ", "", 1); err == nil {
 		t.Errorf("empty content: want error")
 	}
-	if _, err := buildGroupPostEvent(pub, "", "hi", 1); err == nil {
+	if _, err := buildGroupPostEvent(pub, "", "hi", "", 1); err == nil {
 		t.Errorf("empty group id: want error")
 	}
 }
