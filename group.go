@@ -251,12 +251,9 @@ func buildGroupPostEvent(pubkey, groupID, content, replyID string, createdAt nos
 	for _, entry := range extractLinks(ev.Content) {
 		ev.Tags = ev.Tags.AppendUnique(nostr.Tag{"r", entry.text})
 	}
-	hashtag := nostr.Tag{"t"}
+	// One ["t", tag] per hashtag (see buildPostEvent).
 	for _, m := range extractTags(ev.Content) {
-		hashtag = append(hashtag, m.text)
-	}
-	if len(hashtag) > 1 {
-		ev.Tags = ev.Tags.AppendUnique(hashtag)
+		ev.Tags = ev.Tags.AppendUnique(nostr.Tag{"t", m.text})
 	}
 	return ev, nil
 }

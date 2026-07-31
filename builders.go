@@ -144,12 +144,10 @@ func buildPostEvent(arg *postArg, pubkey string, mentionPubkeys []string, now no
 		ev.Tags = ev.Tags.AppendUnique(nostr.Tag{"g", arg.geohash})
 	}
 
-	hashtag := nostr.Tag{"t"}
+	// One ["t", tag] per hashtag: clients read each t tag's value, so a single
+	// combined ["t", a, b, ...] tag would only expose the first hashtag.
 	for _, m := range extractTags(ev.Content) {
-		hashtag = append(hashtag, m.text)
-	}
-	if len(hashtag) > 1 {
-		ev.Tags = ev.Tags.AppendUnique(hashtag)
+		ev.Tags = ev.Tags.AppendUnique(nostr.Tag{"t", m.text})
 	}
 
 	for _, t := range arg.tags {
@@ -240,12 +238,10 @@ func buildReplyEvent(pubkey string, opts replyOpts, cfgEmojis map[string]string,
 	if opts.Geohash != "" {
 		ev.Tags = ev.Tags.AppendUnique(nostr.Tag{"g", opts.Geohash})
 	}
-	hashtag := nostr.Tag{"t"}
+	// One ["t", tag] per hashtag: clients read each t tag's value, so a single
+	// combined ["t", a, b, ...] tag would only expose the first hashtag.
 	for _, m := range extractTags(ev.Content) {
-		hashtag = append(hashtag, m.text)
-	}
-	if len(hashtag) > 1 {
-		ev.Tags = ev.Tags.AppendUnique(hashtag)
+		ev.Tags = ev.Tags.AppendUnique(nostr.Tag{"t", m.text})
 	}
 
 	marker := "reply"
