@@ -67,6 +67,8 @@ type Config struct {
 	verbose        bool
 	tempRelay      bool
 	sk             string
+	authed         map[string]struct{} // relays already NIP-42 authenticated this run
+	authedMu       sync.Mutex
 }
 
 // Event is
@@ -246,6 +248,10 @@ func (cfg *Config) CheckUpdate(profile string) (map[string]Profile, error) {
 			return nil, errors.New("no read relays available")
 		}
 
+		// Authenticate auth-required relays before the config-load queries so
+		// they don't each trip an "auth-required" NOTICE.
+		cfg.preAuth(context.Background(), relays)
+
 		// Get relay list metadata
 		if !cfg.tempRelay {
 			ctx, cancel := context.WithTimeout(context.Background(), relayMetadataTimeout)
@@ -330,6 +336,10 @@ func (cfg *Config) CheckUpdate(profile string) (map[string]Profile, error) {
 	}
 	missingProfiles := missingProfilePubkeys(cfg.profiles, cfg.FollowList, profileBatchMaxFetch)
 	if len(relays) > 0 && len(missingProfiles) > 0 {
+		// Auth relays that only appeared after the relay-list refresh above
+		// (already-authed ones are skipped).
+		cfg.preAuth(context.Background(), relays)
+
 		ctx, cancel := context.WithTimeout(context.Background(), profileBatchTimeout)
 		defer cancel()
 
@@ -842,6 +852,9 @@ func (cfg *Config) preAuth(ctx context.Context, relays []string) {
 		if v, ok := cfg.Relays[url]; !ok || !v.Auth {
 			continue
 		}
+		if cfg.isAuthed(url) {
+			continue // already authenticated this run; no re-auth / no wait
+		}
 		wg.Add(1)
 		go func(url string) {
 			defer wg.Done()
@@ -859,6 +872,9 @@ func (cfg *Config) preAuth(ctx context.Context, relays []string) {
 			err = relay.Auth(actx, func(ev *nostr.Event) error {
 				return ev.Sign(sk)
 			})
+			if err == nil {
+				cfg.markAuthed(url)
+			}
 			if cfg.verbose {
 				if err == nil {
 					fmt.Fprintln(os.Stderr, "authenticated to", url)
@@ -869,6 +885,22 @@ func (cfg *Config) preAuth(ctx context.Context, relays []string) {
 		}(url)
 	}
 	wg.Wait()
+}
+
+func (cfg *Config) isAuthed(url string) bool {
+	cfg.authedMu.Lock()
+	defer cfg.authedMu.Unlock()
+	_, ok := cfg.authed[url]
+	return ok
+}
+
+func (cfg *Config) markAuthed(url string) {
+	cfg.authedMu.Lock()
+	defer cfg.authedMu.Unlock()
+	if cfg.authed == nil {
+		cfg.authed = map[string]struct{}{}
+	}
+	cfg.authed[url] = struct{}{}
 }
 
 // StreamEvents streams events as they arrive, calling the callback for each new event
