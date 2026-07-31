@@ -131,12 +131,9 @@ func buildChannelPostEvent(pubkey string, opts channelPostOpts, cfgEmojis map[st
 		ev.Tags = ev.Tags.AppendUnique(nostr.Tag{"g", opts.Geohash})
 	}
 
-	hashtag := nostr.Tag{"t"}
+	// One ["t", tag] per hashtag (see buildPostEvent).
 	for _, m := range extractTags(ev.Content) {
-		hashtag = append(hashtag, m.text)
-	}
-	if len(hashtag) > 1 {
-		ev.Tags = ev.Tags.AppendUnique(hashtag)
+		ev.Tags = ev.Tags.AppendUnique(nostr.Tag{"t", m.text})
 	}
 
 	for _, t := range opts.Tags {

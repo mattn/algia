@@ -203,6 +203,27 @@ func TestBuildPostEvent_ExtractsLinksAndTags(t *testing.T) {
 	}
 }
 
+func TestBuildPostEvent_MultipleHashtags(t *testing.T) {
+	arg := newPostArg("about #nostr and #golang today")
+	ev, err := buildPostEvent(arg, testPub, nil, 0)
+	if err != nil {
+		t.Fatalf("err=%v", err)
+	}
+	// Each hashtag must be its own ["t", tag], not one combined tag.
+	ts := findAllTags(ev.Tags, "t")
+	got := map[string]bool{}
+	for _, tag := range ts {
+		if len(tag) != 2 {
+			t.Errorf("t tag not single-valued: %v", tag)
+		} else {
+			got[tag[1]] = true
+		}
+	}
+	if !got["nostr"] || !got["golang"] {
+		t.Errorf("t tags=%v want separate nostr and golang", ts)
+	}
+}
+
 func TestBuildPostEvent_EmojiFlagAndInline(t *testing.T) {
 	arg := newPostArg("hi :heart: there :wave: now")
 	arg.cfg.Emojis = map[string]string{"heart": "https://e.example/h.png"}
