@@ -62,6 +62,39 @@ func parseGroupMetadata(ev *nostr.Event) groupInfo {
 	return g
 }
 
+// resolveGroupRef turns a group reference into its id. A reference beginning
+// with "#" is treated as a group name and looked up via kind:39000 metadata
+// (newest match wins); anything else (a UUID / h-tag value) is returned as-is.
+func resolveGroupRef(cCtx *cli.Context, ref string) (string, error) {
+	if !strings.HasPrefix(ref, "#") {
+		return ref, nil
+	}
+	name := strings.TrimPrefix(ref, "#")
+	cfg := cCtx.App.Metadata["config"].(*Config)
+	evs, err := cfg.QueryEvents(context.Background(), nostr.Filters{{
+		Kinds: []int{nostr.KindSimpleGroupMetadata},
+	}})
+	if err != nil {
+		return "", err
+	}
+	var best *nostr.Event
+	for _, e := range evs {
+		if parseGroupMetadata(e).Name == name {
+			if best == nil || e.CreatedAt > best.CreatedAt {
+				best = e
+			}
+		}
+	}
+	if best == nil {
+		return "", fmt.Errorf("no group named %q found", name)
+	}
+	id := parseGroupMetadata(best).ID
+	if id == "" {
+		return "", fmt.Errorf("group %q has no id", name)
+	}
+	return id, nil
+}
+
 // writeRelays returns the configured relays that have Write enabled, sorted for
 // reproducibility. NIP-29 groups live on a specific relay, so posting is aimed
 // at the write relays (typically the group's host relay).
@@ -123,7 +156,10 @@ func doGroupList(cCtx *cli.Context) error {
 }
 
 func doGroupTimeline(cCtx *cli.Context) error {
-	id := cCtx.String("id")
+	id, err := resolveGroupRef(cCtx, cCtx.String("id"))
+	if err != nil {
+		return err
+	}
 	n := cCtx.Int("n")
 	j := cCtx.Bool("json")
 	extra := cCtx.Bool("extra")
@@ -157,7 +193,10 @@ func doGroupTimeline(cCtx *cli.Context) error {
 }
 
 func doGroupStream(cCtx *cli.Context) error {
-	id := cCtx.String("id")
+	id, err := resolveGroupRef(cCtx, cCtx.String("id"))
+	if err != nil {
+		return err
+	}
 	j := cCtx.Bool("json")
 
 	if strings.TrimSpace(id) == "" {
@@ -223,7 +262,10 @@ func buildGroupPostEvent(pubkey, groupID, content, replyID string, createdAt nos
 }
 
 func doGroupPost(cCtx *cli.Context) error {
-	id := cCtx.String("id")
+	id, err := resolveGroupRef(cCtx, cCtx.String("id"))
+	if err != nil {
+		return err
+	}
 	stdin := cCtx.Bool("stdin")
 	images := cCtx.StringSlice("image")
 	if strings.TrimSpace(id) == "" || (!stdin && cCtx.Args().Len() == 0 && len(images) == 0) {
@@ -301,7 +343,10 @@ func buildGroupDeleteEvent(pubkey, groupID, targetID string, createdAt nostr.Tim
 }
 
 func doGroupDelete(cCtx *cli.Context) error {
-	id := cCtx.String("id")
+	id, err := resolveGroupRef(cCtx, cCtx.String("id"))
+	if err != nil {
+		return err
+	}
 	if strings.TrimSpace(id) == "" || cCtx.Args().Len() == 0 {
 		return cli.ShowSubcommandHelp(cCtx)
 	}
@@ -396,7 +441,10 @@ func buildGroupReactEvent(pubkey, groupID, targetID, content, emoji string, crea
 }
 
 func doGroupReact(cCtx *cli.Context) error {
-	id := cCtx.String("id")
+	id, err := resolveGroupRef(cCtx, cCtx.String("id"))
+	if err != nil {
+		return err
+	}
 	target := cCtx.String("target")
 	if strings.TrimSpace(id) == "" || strings.TrimSpace(target) == "" {
 		return cli.ShowSubcommandHelp(cCtx)
@@ -486,7 +534,10 @@ func (cfg *Config) publishGroupEvent(ev *nostr.Event, failMsg string) error {
 }
 
 func doGroupJoin(cCtx *cli.Context) error {
-	id := cCtx.String("id")
+	id, err := resolveGroupRef(cCtx, cCtx.String("id"))
+	if err != nil {
+		return err
+	}
 	if strings.TrimSpace(id) == "" {
 		return cli.ShowSubcommandHelp(cCtx)
 	}
@@ -503,7 +554,10 @@ func doGroupJoin(cCtx *cli.Context) error {
 }
 
 func doGroupLeave(cCtx *cli.Context) error {
-	id := cCtx.String("id")
+	id, err := resolveGroupRef(cCtx, cCtx.String("id"))
+	if err != nil {
+		return err
+	}
 	if strings.TrimSpace(id) == "" {
 		return cli.ShowSubcommandHelp(cCtx)
 	}
@@ -541,7 +595,7 @@ func groupCommand() *cli.Command {
 			{
 				Name: "timeline",
 				Flags: []cli.Flag{
-					&cli.StringFlag{Name: "id", Required: true, Usage: "group id (the h-tag value)"},
+					&cli.StringFlag{Name: "id", Required: true, Usage: "group id (UUID / h-tag) or #name"},
 					&cli.IntFlag{Name: "n", Value: 30, Usage: "number of items"},
 					&cli.BoolFlag{Name: "json", Usage: "output JSON"},
 					&cli.BoolFlag{Name: "extra", Usage: "extra JSON"},
@@ -553,7 +607,7 @@ func groupCommand() *cli.Command {
 			{
 				Name: "stream",
 				Flags: []cli.Flag{
-					&cli.StringFlag{Name: "id", Required: true, Usage: "group id (the h-tag value)"},
+					&cli.StringFlag{Name: "id", Required: true, Usage: "group id (UUID / h-tag) or #name"},
 					&cli.BoolFlag{Name: "json", Usage: "output JSON"},
 				},
 				Usage:     "stream new group messages (NIP-29 kind 9)",
@@ -563,7 +617,7 @@ func groupCommand() *cli.Command {
 			{
 				Name: "post",
 				Flags: []cli.Flag{
-					&cli.StringFlag{Name: "id", Required: true, Usage: "group id (the h-tag value)"},
+					&cli.StringFlag{Name: "id", Required: true, Usage: "group id (UUID / h-tag) or #name"},
 					&cli.BoolFlag{Name: "stdin"},
 					&cli.StringFlag{Name: "reply", Usage: "reply to a message id (note/nevent/hex)"},
 					&cli.StringSliceFlag{Name: "image", Aliases: []string{"i"}, Usage: "image file(s) to upload and attach (repeatable)"},
@@ -577,7 +631,7 @@ func groupCommand() *cli.Command {
 			{
 				Name: "delete",
 				Flags: []cli.Flag{
-					&cli.StringFlag{Name: "id", Required: true, Usage: "group id (the h-tag value)"},
+					&cli.StringFlag{Name: "id", Required: true, Usage: "group id (UUID / h-tag) or #name"},
 				},
 				Usage:     "delete message(s) from a group (NIP-29 kind 9005)",
 				UsageText: "algia group delete --id [group id] <event id> [event id...]",
@@ -587,7 +641,7 @@ func groupCommand() *cli.Command {
 			{
 				Name: "react",
 				Flags: []cli.Flag{
-					&cli.StringFlag{Name: "id", Required: true, Usage: "group id (the h-tag value)"},
+					&cli.StringFlag{Name: "id", Required: true, Usage: "group id (UUID / h-tag) or #name"},
 					&cli.StringFlag{Name: "target", Required: true, Usage: "target message id (note/nevent/hex)"},
 					&cli.StringFlag{Name: "content", Usage: "reaction content (default: +)"},
 					&cli.StringFlag{Name: "emoji", Usage: "custom emoji URL (NIP-30)"},
@@ -599,7 +653,7 @@ func groupCommand() *cli.Command {
 			{
 				Name: "join",
 				Flags: []cli.Flag{
-					&cli.StringFlag{Name: "id", Required: true, Usage: "group id (the h-tag value)"},
+					&cli.StringFlag{Name: "id", Required: true, Usage: "group id (UUID / h-tag) or #name"},
 					&cli.StringFlag{Name: "code", Usage: "invite code (for closed groups)"},
 				},
 				Usage:     "request to join a group (NIP-29 kind 9021)",
@@ -609,7 +663,7 @@ func groupCommand() *cli.Command {
 			{
 				Name: "leave",
 				Flags: []cli.Flag{
-					&cli.StringFlag{Name: "id", Required: true, Usage: "group id (the h-tag value)"},
+					&cli.StringFlag{Name: "id", Required: true, Usage: "group id (UUID / h-tag) or #name"},
 				},
 				Usage:     "leave a group (NIP-29 kind 9022)",
 				UsageText: "algia group leave --id [group id]",
