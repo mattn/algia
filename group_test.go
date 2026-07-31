@@ -169,6 +169,16 @@ func TestBuildGroupLeaveEvent(t *testing.T) {
 	}
 }
 
+func TestResolveGroupRef_Passthrough(t *testing.T) {
+	// A non-"#" reference (a UUID / h-tag) is returned unchanged without any
+	// relay lookup, so a nil context is safe here.
+	const uuid = "fe96b435-7e47-4794-b3aa-9392fb2243f1"
+	got, err := resolveGroupRef(nil, uuid)
+	if err != nil || got != uuid {
+		t.Errorf("resolveGroupRef(%q)=(%q,%v) want (%q,nil)", uuid, got, err, uuid)
+	}
+}
+
 func TestBuildGroupPostEvent_Reply(t *testing.T) {
 	const pub = "0000000000000000000000000000000000000000000000000000000000000001"
 	ev, err := buildGroupPostEvent(pub, "grp-42", "ｶﾞｯ", "targetid", 12345)
