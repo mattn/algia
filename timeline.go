@@ -336,6 +336,9 @@ func doUnrepost(cCtx *cli.Context) error {
 		mu.Unlock()
 		return true
 	})
+	if repostID == "" {
+		return fmt.Errorf("no repost found for '%s'", cCtx.String("id"))
+	}
 
 	ev, err := buildDeleteEvent(pub, repostID, nostr.KindRepost, nostr.Now())
 	if err != nil {
@@ -519,6 +522,9 @@ func callUnlike(arg *unlikeArg) error {
 		mu.Unlock()
 		return true
 	})
+	if likeID == "" {
+		return fmt.Errorf("no reaction found for '%s'", arg.id)
+	}
 
 	ev, err := buildDeleteEvent(pub, likeID, nostr.KindReaction, nostr.Now())
 	if err != nil {
@@ -1095,6 +1101,9 @@ func callUnrepost(arg *unrepostArg) error {
 		mu.Unlock()
 		return true
 	})
+	if repostID == "" {
+		return fmt.Errorf("no repost found for '%s'", arg.id)
+	}
 
 	ev, err := buildDeleteEvent(pub, repostID, nostr.KindRepost, nostr.Now())
 	if err != nil {
