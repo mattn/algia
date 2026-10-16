@@ -212,13 +212,7 @@ func doDelegationCreate(cCtx *cli.Context) error {
 		return errors.New("current profile is already delegated: cannot delegate again")
 	}
 
-	var delegatorSk string
-	if _, s, err := nip19.Decode(cfg.PrivateKey); err == nil {
-		delegatorSk = s.(string)
-	} else {
-		return err
-	}
-	delegatorPub, err := nostr.GetPublicKey(delegatorSk)
+	delegatorSk, delegatorPub, err := getSkAndPub(cfg)
 	if err != nil {
 		return err
 	}
@@ -340,12 +334,8 @@ func doDelegationShow(cCtx *cli.Context) error {
 		fmt.Println("expires: never")
 	}
 
-	var delegateePub string
-	if _, s, err := nip19.Decode(cfg.PrivateKey); err == nil {
-		if delegateePub, err = nostr.GetPublicKey(s.(string)); err != nil {
-			return err
-		}
-	} else {
+	_, delegateePub, err := getSkAndPub(cfg)
+	if err != nil {
 		return err
 	}
 	if verifyDelegationToken(d.Delegator, delegateePub, d.Conditions, d.Token) {
@@ -367,12 +357,8 @@ func doDelegationImport(cCtx *cli.Context) error {
 	if _, err := parseDelegationConditions(d.Conditions); err != nil {
 		return err
 	}
-	var delegateePub string
-	if _, s, err := nip19.Decode(cfg.PrivateKey); err == nil {
-		if delegateePub, err = nostr.GetPublicKey(s.(string)); err != nil {
-			return err
-		}
-	} else {
+	_, delegateePub, err := getSkAndPub(cfg)
+	if err != nil {
 		return err
 	}
 	if !verifyDelegationToken(d.Delegator, delegateePub, d.Conditions, d.Token) {

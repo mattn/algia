@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"sync/atomic"
 
 	"github.com/urfave/cli/v2"
 
@@ -74,11 +73,7 @@ func doProfile(cCtx *cli.Context) error {
 func doNpub(cCtx *cli.Context) error {
 	cfg := cCtx.App.Metadata["config"].(*Config)
 
-	_, s, err := nip19.Decode(cfg.PrivateKey)
-	if err != nil {
-		return err
-	}
-	pub, err := nostr.GetPublicKey(s.(string))
+	_, pub, err := getSkAndPub(cfg)
 	if err != nil {
 		return err
 	}
@@ -97,12 +92,8 @@ func doNpub(cCtx *cli.Context) error {
 func doUpdateProfile(cCtx *cli.Context) error {
 	cfg := cCtx.App.Metadata["config"].(*Config)
 
-	var pub string
-	if _, s, err := nip19.Decode(cfg.PrivateKey); err == nil {
-		if pub, err = nostr.GetPublicKey(s.(string)); err != nil {
-			return err
-		}
-	} else {
+	_, pub, err := getSkAndPub(cfg)
+	if err != nil {
 		return err
 	}
 
@@ -170,17 +161,7 @@ func doUpdateProfile(cCtx *cli.Context) error {
 		return err
 	}
 
-	var success atomic.Int64
-	cfg.Do(context.Background(), Relay{Write: true}, func(ctx context.Context, relay *nostr.Relay) bool {
-		err := relay.Publish(ctx, *ev)
-		if err != nil {
-			fmt.Fprintln(os.Stderr, relay.URL, err)
-		} else {
-			success.Add(1)
-		}
-		return true
-	})
-	if success.Load() == 0 {
+	if cfg.publish(context.Background(), Relay{Write: true}, *ev) == 0 {
 		return errors.New("cannot post")
 	}
 	if cfg.verbose {

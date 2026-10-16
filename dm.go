@@ -5,11 +5,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"os"
 	"sort"
 	"strings"
-	"sync/atomic"
 
 	"github.com/urfave/cli/v2"
 
@@ -27,15 +25,8 @@ func doDMList(cCtx *cli.Context) error {
 
 	cfg := cCtx.App.Metadata["config"].(*Config)
 
-	var sk string
-	var pub string
-	var err error
-	if _, s, err := nip19.Decode(cfg.PrivateKey); err == nil {
-		sk = s.(string)
-	} else {
-		return err
-	}
-	if pub, err = nostr.GetPublicKey(sk); err != nil {
+	_, pub, err := getSkAndPub(cfg)
+	if err != nil {
 		return err
 	}
 
@@ -175,15 +166,8 @@ func doDMTimeline(cCtx *cli.Context) error {
 
 	cfg := cCtx.App.Metadata["config"].(*Config)
 
-	var sk string
-	var pk string
-	var err error
-	if _, s, err := nip19.Decode(cfg.PrivateKey); err == nil {
-		sk = s.(string)
-	} else {
-		return err
-	}
-	if pk, err = nostr.GetPublicKey(sk); err != nil {
+	_, pk, err := getSkAndPub(cfg)
+	if err != nil {
 		return err
 	}
 
@@ -299,33 +283,18 @@ func doDMPost(cCtx *cli.Context) error {
 
 	cfg := cCtx.App.Metadata["config"].(*Config)
 
-	var sk string
-	if _, s, err := nip19.Decode(cfg.PrivateKey); err == nil {
-		sk = s.(string)
-	} else {
+	sk, me, err := getSkAndPub(cfg)
+	if err != nil {
 		return err
 	}
-	ev := nostr.Event{}
+	ev := nostr.Event{PubKey: me}
 	clientTag(&ev)
 
-	if npub, err := nostr.GetPublicKey(sk); err == nil {
-		if _, err := nip19.EncodePublicKey(npub); err != nil {
-			return err
-		}
-		ev.PubKey = npub
-	} else {
+	content, err := readContent(stdin, os.Stdin, cCtx.Args().Slice())
+	if err != nil {
 		return err
 	}
-
-	if stdin {
-		b, err := io.ReadAll(os.Stdin)
-		if err != nil {
-			return err
-		}
-		ev.Content = string(b)
-	} else {
-		ev.Content = strings.Join(cCtx.Args().Slice(), "\n")
-	}
+	ev.Content = content
 	if strings.TrimSpace(ev.Content) == "" {
 		return errors.New("content is empty")
 	}
@@ -361,17 +330,7 @@ func doDMPost(cCtx *cli.Context) error {
 			return err
 		}
 
-		var success atomic.Int64
-		cfg.Do(context.Background(), Relay{Write: true, DM: true}, func(ctx context.Context, relay *nostr.Relay) bool {
-			err := relay.Publish(ctx, ev)
-			if err != nil {
-				fmt.Fprintln(os.Stderr, relay.URL, err)
-			} else {
-				success.Add(1)
-			}
-			return true
-		})
-		if success.Load() == 0 {
+		if cfg.publish(context.Background(), Relay{Write: true, DM: true}, ev) == 0 {
 			return errors.New("cannot post")
 		}
 	} else {
@@ -420,17 +379,7 @@ func doDMPost(cCtx *cli.Context) error {
 		}
 
 		// Publish sender's gift wrap to sender's own relays
-		var success atomic.Int64
-		cfg.Do(context.Background(), Relay{Write: true, DM: true}, func(ctx context.Context, relay *nostr.Relay) bool {
-			err := relay.Publish(ctx, senderWrap)
-			if err != nil {
-				fmt.Fprintln(os.Stderr, relay.URL, err)
-			} else {
-				success.Add(1)
-			}
-			return true
-		})
-		if success.Load() == 0 {
+		if cfg.publish(context.Background(), Relay{Write: true, DM: true}, senderWrap) == 0 {
 			return errors.New("cannot post sender's copy")
 		}
 	}

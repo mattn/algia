@@ -5,11 +5,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"os"
 	"sort"
 	"strings"
-	"sync/atomic"
 
 	"github.com/fatih/color"
 	"github.com/urfave/cli/v2"
@@ -136,28 +134,7 @@ func buildChannelPostEvent(pubkey string, opts channelPostOpts, cfgEmojis map[st
 		ev.Tags = ev.Tags.AppendUnique(nostr.Tag{"t", m.text})
 	}
 
-	for _, t := range opts.Tags {
-		name, value, found := strings.Cut(t, "=")
-		tag := nostr.Tag{name}
-		if found {
-			tag = append(tag, strings.Split(value, ";")...)
-		}
-		if len(tag) == 0 {
-			continue
-		}
-		if tag[0] == "client" {
-			tags := make(nostr.Tags, 0, len(ev.Tags))
-			for _, existing := range ev.Tags {
-				if len(existing) > 0 && existing[0] == "client" {
-					continue
-				}
-				tags = append(tags, existing)
-			}
-			ev.Tags = append(tags, tag)
-		} else {
-			ev.Tags = ev.Tags.AppendUnique(tag)
-		}
-	}
+	ev.Tags = appendUserTags(ev.Tags, opts.Tags)
 	return ev, nil
 }
 
@@ -201,16 +178,7 @@ func doChannelCreate(cCtx *cli.Context) error {
 		return err
 	}
 
-	var success atomic.Int64
-	cfg.Do(context.Background(), Relay{Write: true}, func(ctx context.Context, relay *nostr.Relay) bool {
-		if err := relay.Publish(ctx, *ev); err != nil {
-			fmt.Fprintln(os.Stderr, relay.URL, err)
-		} else {
-			success.Add(1)
-		}
-		return true
-	})
-	if success.Load() == 0 {
+	if cfg.publish(context.Background(), Relay{Write: true}, *ev) == 0 {
 		return errors.New("cannot create channel")
 	}
 
@@ -375,15 +343,9 @@ func doChannelPost(cCtx *cli.Context) error {
 		return err
 	}
 
-	var content string
-	if stdin {
-		b, err := io.ReadAll(os.Stdin)
-		if err != nil {
-			return err
-		}
-		content = string(b)
-	} else {
-		content = strings.Join(cCtx.Args().Slice(), "\n")
+	content, err := readContent(stdin, os.Stdin, cCtx.Args().Slice())
+	if err != nil {
+		return err
 	}
 
 	mentionPubkeys, err := resolveMentions(context.TODO(), cCtx.StringSlice("u"))
@@ -418,16 +380,7 @@ func doChannelPost(cCtx *cli.Context) error {
 		return err
 	}
 
-	var success atomic.Int64
-	cfg.Do(context.Background(), Relay{Write: true}, func(ctx context.Context, relay *nostr.Relay) bool {
-		if err := relay.Publish(ctx, *ev); err != nil {
-			fmt.Fprintln(os.Stderr, relay.URL, err)
-		} else {
-			success.Add(1)
-		}
-		return true
-	})
-	if success.Load() == 0 {
+	if cfg.publish(context.Background(), Relay{Write: true}, *ev) == 0 {
 		return errors.New("cannot post to channel")
 	}
 	if cfg.verbose {

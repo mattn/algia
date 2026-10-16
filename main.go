@@ -14,6 +14,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/nbd-wtf/go-nostr/nip59"
@@ -224,12 +225,8 @@ func missingProfilePubkeys(profiles map[string]Profile, follows []string, limit 
 
 // CheckUpdate is
 func (cfg *Config) CheckUpdate(profile string) (map[string]Profile, error) {
-	var pub string
-	if _, s, err := nip19.Decode(cfg.PrivateKey); err == nil {
-		if pub, err = nostr.GetPublicKey(s.(string)); err != nil {
-			return nil, err
-		}
-	} else {
+	_, pub, err := getSkAndPub(cfg)
+	if err != nil {
 		return nil, err
 	}
 
@@ -491,6 +488,21 @@ func (cfg *Config) Do(ctx context.Context, r Relay, f func(context.Context, *nos
 		}(&wg, k, v)
 	}
 	wg.Wait()
+}
+
+// publish sends ev to the relays selected by r, reporting per-relay errors to
+// stderr, and returns how many relays accepted it.
+func (cfg *Config) publish(ctx context.Context, r Relay, ev nostr.Event) int64 {
+	var success atomic.Int64
+	cfg.Do(ctx, r, func(ctx context.Context, relay *nostr.Relay) bool {
+		if err := relay.Publish(ctx, ev); err != nil {
+			fmt.Fprintln(os.Stderr, relay.URL, err)
+		} else {
+			success.Add(1)
+		}
+		return true
+	})
+	return success.Load()
 }
 
 func (cfg *Config) saveConfig(profile string) error {
@@ -772,15 +784,8 @@ func (cfg *Config) QueryEvents(ctx context.Context, filters nostr.Filters) ([]*n
 		fmt.Printf("Filters: %+v\n", filters)
 	}
 
-	var sk string
-	var pub string
-	var err error
-	if _, s, err := nip19.Decode(cfg.PrivateKey); err == nil {
-		sk = s.(string)
-	} else {
-		return nil, err
-	}
-	if pub, err = nostr.GetPublicKey(sk); err != nil {
+	sk, pub, err := getSkAndPub(cfg)
+	if err != nil {
 		return nil, err
 	}
 

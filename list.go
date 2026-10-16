@@ -5,9 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"os"
 	"strings"
-	"sync/atomic"
 
 	"github.com/urfave/cli/v2"
 
@@ -503,16 +501,7 @@ func callListAdd(arg *listAddArg) error {
 		return err
 	}
 
-	var success atomic.Int64
-	arg.cfg.Do(arg.ctx, Relay{Write: true}, func(ctx context.Context, relay *nostr.Relay) bool {
-		if err := relay.Publish(ctx, ev); err != nil {
-			fmt.Fprintln(os.Stderr, relay.URL, err)
-		} else {
-			success.Add(1)
-		}
-		return true
-	})
-	if success.Load() == 0 {
+	if arg.cfg.publish(arg.ctx, Relay{Write: true}, ev) == 0 {
 		return errors.New("cannot publish list")
 	}
 	return nil
@@ -607,16 +596,7 @@ func callListRemove(arg *listRemoveArg) error {
 		return err
 	}
 
-	var success atomic.Int64
-	arg.cfg.Do(arg.ctx, Relay{Write: true}, func(ctx context.Context, relay *nostr.Relay) bool {
-		if err := relay.Publish(ctx, ev); err != nil {
-			fmt.Fprintln(os.Stderr, relay.URL, err)
-		} else {
-			success.Add(1)
-		}
-		return true
-	})
-	if success.Load() == 0 {
+	if arg.cfg.publish(arg.ctx, Relay{Write: true}, ev) == 0 {
 		return errors.New("cannot publish list")
 	}
 	return nil
@@ -676,16 +656,7 @@ func callListDelete(arg *listDeleteArg) error {
 		return err
 	}
 
-	var success atomic.Int64
-	arg.cfg.Do(arg.ctx, Relay{Write: true}, func(ctx context.Context, relay *nostr.Relay) bool {
-		if err := relay.Publish(ctx, ev); err != nil {
-			fmt.Fprintln(os.Stderr, relay.URL, err)
-		} else {
-			success.Add(1)
-		}
-		return true
-	})
-	if success.Load() == 0 {
+	if arg.cfg.publish(arg.ctx, Relay{Write: true}, ev) == 0 {
 		return errors.New("cannot delete list")
 	}
 	return nil
