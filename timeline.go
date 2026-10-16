@@ -430,6 +430,7 @@ func doSearch(cCtx *cli.Context) error {
 
 	cfg := cCtx.App.Metadata["config"].(*Config)
 	evs, err := callSearch(&searchArg{
+		ctx:    cCtx.Context,
 		cfg:    cfg,
 		search: strings.Join(cCtx.Args().Slice(), " "),
 		n:      cCtx.Int("n"),
