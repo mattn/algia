@@ -19,13 +19,9 @@ jobs:
     - name: Cross build
       run: make cross
     - name: Create Release
-      id: create_release
-      uses: actions/create-release@master
+      run: gh release create "$GITHUB_REF_NAME" --title "Release $GITHUB_REF_NAME" --generate-notes
       env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      with:
-        tag_name: ${{ github.ref }}
-        release_name: Release ${{ github.ref }}
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     - name: Upload
       run: make upload
       env:
