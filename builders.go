@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"strconv"
 	"strings"
 
@@ -150,29 +151,7 @@ func buildPostEvent(arg *postArg, pubkey string, mentionPubkeys []string, now no
 		ev.Tags = ev.Tags.AppendUnique(nostr.Tag{"t", m.text})
 	}
 
-	for _, t := range arg.tags {
-		name, value, found := strings.Cut(t, "=")
-		tag := nostr.Tag{name}
-		if found {
-			tag = append(tag, strings.Split(value, ";")...)
-		}
-		if len(tag) == 0 {
-			continue
-		}
-		if tag[0] == "client" {
-			// Overwrite an existing client tag rather than appending duplicates.
-			tags := make(nostr.Tags, 0, len(ev.Tags))
-			for _, existing := range ev.Tags {
-				if len(existing) > 0 && existing[0] == "client" {
-					continue
-				}
-				tags = append(tags, existing)
-			}
-			ev.Tags = append(tags, tag)
-		} else {
-			ev.Tags = ev.Tags.AppendUnique(tag)
-		}
-	}
+	ev.Tags = appendUserTags(ev.Tags, arg.tags)
 
 	if arg.articleName != "" {
 		ev.Kind = nostr.KindArticle
@@ -267,4 +246,50 @@ func resolveMentions(ctx context.Context, us []string) ([]string, error) {
 		}
 	}
 	return out, nil
+}
+
+// parseTagSpec parses a --tag value "name=v1;v2" into ["name", "v1", "v2"].
+// A value without "=" yields a tag with only the name.
+func parseTagSpec(s string) nostr.Tag {
+	name, value, found := strings.Cut(s, "=")
+	tag := nostr.Tag{name}
+	if found {
+		// tags may also contain extra elements separated with a ";"
+		tag = append(tag, strings.Split(value, ";")...)
+	}
+	return tag
+}
+
+// appendUserTags appends --tag values to tags. A user-supplied "client" tag
+// replaces any existing one rather than adding a duplicate.
+func appendUserTags(tags nostr.Tags, specs []string) nostr.Tags {
+	for _, s := range specs {
+		tag := parseTagSpec(s)
+		if tag[0] == "client" {
+			filtered := make(nostr.Tags, 0, len(tags))
+			for _, existing := range tags {
+				if len(existing) > 0 && existing[0] == "client" {
+					continue
+				}
+				filtered = append(filtered, existing)
+			}
+			tags = append(filtered, tag)
+		} else {
+			tags = tags.AppendUnique(tag)
+		}
+	}
+	return tags
+}
+
+// readContent returns the note body: all of r when stdin is set, otherwise
+// args joined by newlines.
+func readContent(stdin bool, r io.Reader, args []string) (string, error) {
+	if !stdin {
+		return strings.Join(args, "\n"), nil
+	}
+	b, err := io.ReadAll(r)
+	if err != nil {
+		return "", err
+	}
+	return string(b), nil
 }

@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"os"
 	"sort"
 	"strings"
@@ -276,15 +275,9 @@ func doGroupPost(cCtx *cli.Context) error {
 		return err
 	}
 
-	var content string
-	if stdin {
-		b, err := io.ReadAll(os.Stdin)
-		if err != nil {
-			return err
-		}
-		content = string(b)
-	} else {
-		content = strings.Join(cCtx.Args().Slice(), "\n")
+	content, err := readContent(stdin, os.Stdin, cCtx.Args().Slice())
+	if err != nil {
+		return err
 	}
 
 	// Upload images (group posts default to the relay's own media store) and

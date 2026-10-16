@@ -207,10 +207,8 @@ type zapArg struct {
 }
 
 func callZap(arg *zapArg) error {
-	var sk string
-	if _, s, err := nip19.Decode(arg.cfg.PrivateKey); err == nil {
-		sk = s.(string)
-	} else {
+	_, pub, err := getSkAndPub(arg.cfg)
+	if err != nil {
 		return err
 	}
 
@@ -219,14 +217,7 @@ func callZap(arg *zapArg) error {
 	zr.Tags = nostr.Tags{}
 	clientTag(&zr)
 
-	if pub, err := nostr.GetPublicKey(sk); err == nil {
-		if _, err := nip19.EncodePublicKey(pub); err != nil {
-			return err
-		}
-		zr.PubKey = pub
-	} else {
-		return err
-	}
+	zr.PubKey = pub
 
 	zr.Tags = zr.Tags.AppendUnique(nostr.Tag{"amount", fmt.Sprint(arg.amount * 1000)})
 	relays := nostr.Tag{"relays"}

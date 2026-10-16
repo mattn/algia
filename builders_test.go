@@ -1,6 +1,8 @@
 package main
 
 import (
+	"context"
+	"errors"
 	"strings"
 	"testing"
 
@@ -435,5 +437,96 @@ func TestBuildReplyEvent_SensitiveAndGeohash(t *testing.T) {
 	}
 	if g := findTag(ev.Tags, "g"); g == nil || g[1] != "xn76" {
 		t.Errorf("g tag: %v", g)
+	}
+}
+
+// --- parseTagSpec / appendUserTags ---
+
+func TestParseTagSpec(t *testing.T) {
+	tests := []struct {
+		in   string
+		want nostr.Tag
+	}{
+		{"t", nostr.Tag{"t"}},
+		{"t=nostr", nostr.Tag{"t", "nostr"}},
+		{"e=abc;wss://relay;reply", nostr.Tag{"e", "abc", "wss://relay", "reply"}},
+		{"x=", nostr.Tag{"x", ""}},
+		{"=v", nostr.Tag{"", "v"}},
+	}
+	for _, tt := range tests {
+		got := parseTagSpec(tt.in)
+		if strings.Join(got, "|") != strings.Join(tt.want, "|") || len(got) != len(tt.want) {
+			t.Errorf("parseTagSpec(%q) = %v, want %v", tt.in, got, tt.want)
+		}
+	}
+}
+
+func TestAppendUserTags(t *testing.T) {
+	tags := nostr.Tags{{"client", "algia"}, {"t", "a"}}
+	got := appendUserTags(tags, []string{"t=a", "t=b", "client=other;x"})
+	want := nostr.Tags{{"t", "a"}, {"t", "b"}, {"client", "other", "x"}}
+	if len(got) != len(want) {
+		t.Fatalf("got=%v want=%v", got, want)
+	}
+	for i := range want {
+		if strings.Join(got[i], "|") != strings.Join(want[i], "|") {
+			t.Errorf("tag %d: got=%v want=%v", i, got[i], want[i])
+		}
+	}
+}
+
+func TestAppendUserTags_Empty(t *testing.T) {
+	tags := nostr.Tags{{"t", "a"}}
+	got := appendUserTags(tags, nil)
+	if len(got) != 1 || got[0][1] != "a" {
+		t.Errorf("got=%v", got)
+	}
+}
+
+// --- readContent ---
+
+func TestReadContent_Args(t *testing.T) {
+	got, err := readContent(false, strings.NewReader("ignored"), []string{"hello", "world"})
+	if err != nil {
+		t.Fatalf("err=%v", err)
+	}
+	if got != "hello\nworld" {
+		t.Errorf("got=%q", got)
+	}
+}
+
+func TestReadContent_Stdin(t *testing.T) {
+	got, err := readContent(true, strings.NewReader("from\nstdin\n"), []string{"ignored"})
+	if err != nil {
+		t.Fatalf("err=%v", err)
+	}
+	if got != "from\nstdin\n" {
+		t.Errorf("got=%q", got)
+	}
+}
+
+type errReader struct{}
+
+func (errReader) Read([]byte) (int, error) { return 0, errors.New("boom") }
+
+func TestReadContent_StdinError(t *testing.T) {
+	if _, err := readContent(true, errReader{}, nil); err == nil {
+		t.Error("expected error")
+	}
+}
+
+// --- publish / findOwnEventReferencing without relays ---
+
+func TestPublish_NoRelays(t *testing.T) {
+	cfg := &Config{Relays: map[string]Relay{}}
+	if n := cfg.publish(context.Background(), Relay{Write: true}, nostr.Event{}); n != 0 {
+		t.Errorf("got=%d want=0", n)
+	}
+}
+
+func TestFindOwnEventReferencing_NoRelays(t *testing.T) {
+	cfg := &Config{Relays: map[string]Relay{}}
+	if id := findOwnEventReferencing(context.Background(), cfg, nostr.KindReaction, testPub, testTargetID); id != "" {
+		t.Errorf("got=%q want empty", id)
 	}
 }
