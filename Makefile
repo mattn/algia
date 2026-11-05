@@ -27,6 +27,7 @@ $(GOBIN)/gobump:
 cross: $(GOBIN)/goxz
 	goxz -n $(BIN) -pv=v$(VERSION) -build-ldflags=$(BUILD_LDFLAGS) .
 	goxz -n $(BIN) -arch arm -os linux -pv=v$(VERSION) -build-ldflags=$(BUILD_LDFLAGS) .
+	goxz -n $(BIN) -arch 386 -os linux -pv=v$(VERSION) -build-ldflags=$(BUILD_LDFLAGS) .
 
 $(GOBIN)/goxz:
 	go install github.com/Songmu/goxz/cmd/goxz@latest
@@ -49,6 +50,14 @@ ifneq ($(shell git rev-parse --abbrev-ref HEAD),main)
 	$(error current branch is not main)
 endif
 	@gobump up -w .
+	git commit -am "Bump up version to $(VERSION)"
+	git tag "v$(VERSION)"
+	git push origin main
+	git push origin "refs/tags/v$(VERSION)"
+
+.PHONY: bump-force
+bump-force: $(GOBIN)/gobump
+	@gobump patch -w .
 	git commit -am "Bump up version to $(VERSION)"
 	git tag "v$(VERSION)"
 	git push origin main
