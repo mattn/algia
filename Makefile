@@ -55,6 +55,14 @@ endif
 	git push origin main
 	git push origin "refs/tags/v$(VERSION)"
 
+.PHONY: bump-force
+bump-force: $(GOBIN)/gobump
+	@gobump patch -w .
+	git commit -am "Bump up version to $(VERSION)"
+	git tag "v$(VERSION)"
+	git push origin main
+	git push origin "refs/tags/v$(VERSION)"
+
 .PHONY: upload
 upload: $(GOBIN)/ghr
 	ghr "v$(VERSION)" goxz
