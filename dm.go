@@ -13,9 +13,7 @@ import (
 
 	"github.com/fatih/color"
 	"github.com/nbd-wtf/go-nostr"
-	"github.com/nbd-wtf/go-nostr/nip04"
 	"github.com/nbd-wtf/go-nostr/nip19"
-	"github.com/nbd-wtf/go-nostr/nip44"
 	"github.com/nbd-wtf/go-nostr/nip59"
 	"github.com/nbd-wtf/go-nostr/sdk"
 )
@@ -25,7 +23,7 @@ func doDMList(cCtx *cli.Context) error {
 
 	cfg := cCtx.App.Metadata["config"].(*Config)
 
-	_, pub, err := getSkAndPub(cfg)
+	pub, err := cfg.pubkey()
 	if err != nil {
 		return err
 	}
@@ -166,7 +164,7 @@ func doDMTimeline(cCtx *cli.Context) error {
 
 	cfg := cCtx.App.Metadata["config"].(*Config)
 
-	_, pk, err := getSkAndPub(cfg)
+	pk, err := cfg.pubkey()
 	if err != nil {
 		return err
 	}
@@ -256,20 +254,29 @@ func doDMTimeline(cCtx *cli.Context) error {
 	return nil
 }
 
-func createGiftWrap(ev nostr.Event, recipientPubkey, senderSk string) (nostr.Event, error) {
+// createGiftWrap seals ev with the sender's signer (NIP-59) and wraps it for
+// recipientPubkey with a throwaway key.
+func createGiftWrap(ev nostr.Event, recipientPubkey string, signer Signer) (nostr.Event, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), signTimeout)
+	defer cancel()
 	return nip59.GiftWrap(ev, recipientPubkey,
 		func(plaintext string) (string, error) {
-			conversationKey, err := nip44.GenerateConversationKey(recipientPubkey, senderSk)
-			if err != nil {
-				return "", err
-			}
-			return nip44.Encrypt(plaintext, conversationKey)
+			return signer.Encrypt(ctx, plaintext, recipientPubkey)
 		},
 		func(ev *nostr.Event) error {
-			return ev.Sign(senderSk)
+			return signer.SignEvent(ctx, ev)
 		},
 		nil,
 	)
+}
+
+// giftUnwrap opens a NIP-59 gift wrap addressed to the signer's key.
+func giftUnwrap(ev nostr.Event, signer Signer) (nostr.Event, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), signTimeout)
+	defer cancel()
+	return nip59.GiftUnwrap(ev, func(otherpubkey, ciphertext string) (string, error) {
+		return signer.Decrypt(ctx, ciphertext, otherpubkey)
+	})
 }
 
 func doDMPost(cCtx *cli.Context) error {
@@ -283,7 +290,11 @@ func doDMPost(cCtx *cli.Context) error {
 
 	cfg := cCtx.App.Metadata["config"].(*Config)
 
-	sk, me, err := getSkAndPub(cfg)
+	signer, err := cfg.signer()
+	if err != nil {
+		return err
+	}
+	me, err := cfg.pubkey()
 	if err != nil {
 		return err
 	}
@@ -318,11 +329,9 @@ func doDMPost(cCtx *cli.Context) error {
 
 	if useNip04 {
 		ev.Kind = nostr.KindEncryptedDirectMessage
-		ss, err := nip04.ComputeSharedSecret(pub, sk)
-		if err != nil {
-			return err
-		}
-		ev.Content, err = nip04.Encrypt(ev.Content, ss)
+		ctx, cancel := context.WithTimeout(context.Background(), signTimeout)
+		ev.Content, err = signer.NIP04Encrypt(ctx, ev.Content, pub)
+		cancel()
 		if err != nil {
 			return err
 		}
@@ -337,13 +346,13 @@ func doDMPost(cCtx *cli.Context) error {
 		ev.Kind = nostr.KindDirectMessage
 
 		// Create gift wrap for receiver
-		receiverWrap, err := createGiftWrap(ev, pub, sk)
+		receiverWrap, err := createGiftWrap(ev, pub, signer)
 		if err != nil {
 			return err
 		}
 
 		// Create gift wrap for sender (self)
-		senderWrap, err := createGiftWrap(ev, ev.PubKey, sk)
+		senderWrap, err := createGiftWrap(ev, ev.PubKey, signer)
 		if err != nil {
 			return err
 		}

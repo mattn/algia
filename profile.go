@@ -22,14 +22,11 @@ func doProfile(cCtx *cli.Context) error {
 
 	var pub string
 	if user == "" {
-		if _, s, err := nip19.Decode(cfg.PrivateKey); err == nil {
-			if pub, err = nostr.GetPublicKey(s.(string)); err != nil {
-				return err
-			}
-			if user, err = nip19.EncodePublicKey(pub); err != nil {
-				return err
-			}
-		} else {
+		var err error
+		if pub, err = cfg.pubkey(); err != nil {
+			return err
+		}
+		if user, err = nip19.EncodePublicKey(pub); err != nil {
 			return err
 		}
 	} else {
@@ -73,7 +70,7 @@ func doProfile(cCtx *cli.Context) error {
 func doNpub(cCtx *cli.Context) error {
 	cfg := cCtx.App.Metadata["config"].(*Config)
 
-	_, pub, err := getSkAndPub(cfg)
+	pub, err := cfg.pubkey()
 	if err != nil {
 		return err
 	}
@@ -92,7 +89,7 @@ func doNpub(cCtx *cli.Context) error {
 func doUpdateProfile(cCtx *cli.Context) error {
 	cfg := cCtx.App.Metadata["config"].(*Config)
 
-	_, pub, err := getSkAndPub(cfg)
+	pub, err := cfg.pubkey()
 	if err != nil {
 		return err
 	}

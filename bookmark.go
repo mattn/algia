@@ -30,7 +30,7 @@ type bookmarksArg struct {
 }
 
 func callBookmarks(arg *bookmarksArg) ([]*nostr.Event, error) {
-	_, pub, err := getSkAndPub(arg.cfg)
+	pub, err := arg.cfg.pubkey()
 	if err != nil {
 		return nil, err
 	}

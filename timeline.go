@@ -91,7 +91,7 @@ type postArg struct {
 }
 
 func callPost(arg *postArg) error {
-	_, pub, err := getSkAndPub(arg.cfg)
+	pub, err := arg.cfg.pubkey()
 	if err != nil {
 		return err
 	}
@@ -142,7 +142,7 @@ func doEvent(cCtx *cli.Context) error {
 
 	cfg := cCtx.App.Metadata["config"].(*Config)
 
-	_, pub, err := getSkAndPub(cfg)
+	pub, err := cfg.pubkey()
 	if err != nil {
 		return err
 	}
@@ -239,7 +239,7 @@ type likeArg struct {
 }
 
 func callLike(arg *likeArg) error {
-	_, pub, err := getSkAndPub(arg.cfg)
+	pub, err := arg.cfg.pubkey()
 	if err != nil {
 		return err
 	}
@@ -345,7 +345,7 @@ func callUnlike(arg *unlikeArg) error {
 		return fmt.Errorf("failed to parse event from '%s'", arg.id)
 	}
 
-	_, pub, err := getSkAndPub(arg.cfg)
+	pub, err := arg.cfg.pubkey()
 	if err != nil {
 		return err
 	}
@@ -550,7 +550,7 @@ func doStream(cCtx *cli.Context) error {
 
 	cfg := cCtx.App.Metadata["config"].(*Config)
 
-	_, pub, err := getSkAndPub(cfg)
+	pub, err := cfg.pubkey()
 	if err != nil {
 		return err
 	}
@@ -736,7 +736,7 @@ func callTimeline(arg *timelineArg) ([]*nostr.Event, error) {
 func postMsg(cCtx *cli.Context, msg string) error {
 	cfg := cCtx.App.Metadata["config"].(*Config)
 
-	_, pub, err := getSkAndPub(cfg)
+	pub, err := cfg.pubkey()
 	if err != nil {
 		return err
 	}
@@ -786,7 +786,7 @@ func callReply(arg *replyArg) error {
 		return fmt.Errorf("failed to parse event from '%s'", id)
 	}
 
-	_, pub, err := getSkAndPub(arg.cfg)
+	pub, err := arg.cfg.pubkey()
 	if err != nil {
 		return err
 	}
@@ -822,7 +822,7 @@ type repostArg struct {
 func callRepost(arg *repostArg) error {
 	id := arg.id
 
-	_, pub, err := getSkAndPub(arg.cfg)
+	pub, err := arg.cfg.pubkey()
 	if err != nil {
 		return err
 	}
@@ -869,7 +869,7 @@ func callUnrepost(arg *unrepostArg) error {
 		return fmt.Errorf("failed to parse event from '%s'", id)
 	}
 
-	_, pub, err := getSkAndPub(arg.cfg)
+	pub, err := arg.cfg.pubkey()
 	if err != nil {
 		return err
 	}
@@ -910,7 +910,7 @@ func callDelete(arg *deleteArg) error {
 		return fmt.Errorf("failed to parse event from '%s'", id)
 	}
 
-	_, pub, err := getSkAndPub(arg.cfg)
+	pub, err := arg.cfg.pubkey()
 	if err != nil {
 		return err
 	}
@@ -1001,19 +1001,7 @@ type reportArg struct {
 }
 
 func callReport(arg *reportArg) error {
-	sk := arg.cfg.sk
-	if sk == "" {
-		if _, s, err := nip19.Decode(arg.cfg.PrivateKey); err == nil {
-			sk = s.(string)
-		} else {
-			return err
-		}
-	}
-	if sk == "" {
-		return fmt.Errorf("no private key found")
-	}
-
-	pub, err := nostr.GetPublicKey(sk)
+	pub, err := arg.cfg.pubkey()
 	if err != nil {
 		return err
 	}
@@ -1130,19 +1118,7 @@ type reportProfileArg struct {
 }
 
 func callReportProfile(arg *reportProfileArg) error {
-	sk := arg.cfg.sk
-	if sk == "" {
-		if _, s, err := nip19.Decode(arg.cfg.PrivateKey); err == nil {
-			sk = s.(string)
-		} else {
-			return err
-		}
-	}
-	if sk == "" {
-		return fmt.Errorf("no private key found")
-	}
-
-	pub, err := nostr.GetPublicKey(sk)
+	pub, err := arg.cfg.pubkey()
 	if err != nil {
 		return err
 	}

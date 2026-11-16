@@ -125,12 +125,6 @@ func verifyDelegationToken(delegatorPub, delegateePub, conditions, token string)
 // delegated one, the delegation conditions are enforced and the delegation
 // tag is attached before signing.
 func (cfg *Config) signEvent(ev *nostr.Event) error {
-	var sk string
-	if _, s, err := nip19.Decode(cfg.PrivateKey); err == nil {
-		sk = s.(string)
-	} else {
-		return err
-	}
 	if d := cfg.Delegation; d != nil {
 		c, err := parseDelegationConditions(d.Conditions)
 		if err != nil {
@@ -146,7 +140,7 @@ func (cfg *Config) signEvent(ev *nostr.Event) error {
 		}
 		ev.Tags = append(ev.Tags, nostr.Tag{"delegation", d.Delegator, d.Conditions, d.Token})
 	}
-	return ev.Sign(sk)
+	return cfg.sign(ev)
 }
 
 // delegationDisplayPubKey returns the delegator's public key when ev carries
@@ -212,7 +206,11 @@ func doDelegationCreate(cCtx *cli.Context) error {
 		return errors.New("current profile is already delegated: cannot delegate again")
 	}
 
-	delegatorSk, delegatorPub, err := getSkAndPub(cfg)
+	delegatorSk, err := cfg.localSecretKey()
+	if err != nil {
+		return err
+	}
+	delegatorPub, err := nostr.GetPublicKey(delegatorSk)
 	if err != nil {
 		return err
 	}
@@ -334,7 +332,7 @@ func doDelegationShow(cCtx *cli.Context) error {
 		fmt.Println("expires: never")
 	}
 
-	_, delegateePub, err := getSkAndPub(cfg)
+	delegateePub, err := cfg.pubkey()
 	if err != nil {
 		return err
 	}
@@ -357,7 +355,7 @@ func doDelegationImport(cCtx *cli.Context) error {
 	if _, err := parseDelegationConditions(d.Conditions); err != nil {
 		return err
 	}
-	_, delegateePub, err := getSkAndPub(cfg)
+	delegateePub, err := cfg.pubkey()
 	if err != nil {
 		return err
 	}

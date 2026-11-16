@@ -270,7 +270,7 @@ func doGroupPost(cCtx *cli.Context) error {
 
 	cfg := cCtx.App.Metadata["config"].(*Config)
 
-	_, pub, err := getSkAndPub(cfg)
+	pub, err := cfg.pubkey()
 	if err != nil {
 		return err
 	}
@@ -343,7 +343,7 @@ func doGroupDelete(cCtx *cli.Context) error {
 
 	cfg := cCtx.App.Metadata["config"].(*Config)
 
-	_, pub, err := getSkAndPub(cfg)
+	pub, err := cfg.pubkey()
 	if err != nil {
 		return err
 	}
@@ -442,7 +442,7 @@ func doGroupReact(cCtx *cli.Context) error {
 
 	cfg := cCtx.App.Metadata["config"].(*Config)
 
-	_, pub, err := getSkAndPub(cfg)
+	pub, err := cfg.pubkey()
 	if err != nil {
 		return err
 	}
@@ -532,7 +532,7 @@ func doGroupJoin(cCtx *cli.Context) error {
 		return cli.ShowSubcommandHelp(cCtx)
 	}
 	cfg := cCtx.App.Metadata["config"].(*Config)
-	_, pub, err := getSkAndPub(cfg)
+	pub, err := cfg.pubkey()
 	if err != nil {
 		return err
 	}
@@ -552,7 +552,7 @@ func doGroupLeave(cCtx *cli.Context) error {
 		return cli.ShowSubcommandHelp(cCtx)
 	}
 	cfg := cCtx.App.Metadata["config"].(*Config)
-	_, pub, err := getSkAndPub(cfg)
+	pub, err := cfg.pubkey()
 	if err != nil {
 		return err
 	}

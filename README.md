@@ -71,6 +71,30 @@ Minimal configuration. Need to be at ~/.config/algia/config.json
 }
 ```
 
+### Remote signer (NIP-46)
+
+Instead of keeping an nsec in the config file, you can let a
+[NIP-46](https://github.com/nostr-protocol/nips/blob/master/46.md) remote signer
+(bunker) such as nsec.app, Amber or `nak bunker` sign for you. Put the bunker URL
+(or a NIP-05 identifier that publishes NIP-46 relays) in `privatekey`:
+
+```json
+{
+  "privatekey": "bunker://<remote-signer-pubkey>?relay=wss://relay.nsec.app&secret=xxxx"
+}
+```
+
+On first use algia connects with the one-time `secret` and stores the client key
+it was authorized with, together with your public key, in
+`~/.config/algia/bunker-session.json` (`bunker-session-<profile>.json` with `-a`).
+Later runs reuse that session, so the `secret` may be removed from the config.
+Read-only commands do not contact the signer at all. If the signer asks for
+approval in a browser, algia prints the URL to open.
+
+To reconnect from scratch (e.g. after revoking the client in the signer),
+delete the session file and use a fresh bunker URL. NIP-26 `delegation create`
+needs a local nsec and is not available with a remote signer.
+
 For a relay that requires NIP-42 authentication before it will serve reads (some
 signal this with a `NOTICE` rather than a `CLOSED` message), add `"auth": true`
 to that relay so algia authenticates up front:
@@ -178,7 +202,7 @@ If you want to zap via Nostr Wallet Connect, please add `nwc-uri` which are prov
 * [x] repost
 * [x] zap
 * [x] upload images
-* [ ] NIP-46 remote signer (bunker)
+* [x] NIP-46 remote signer (bunker)
 * [ ] NIP-49 encrypted private key (ncryptsec)
 * [ ] follow / unfollow (NIP-02)
 * [ ] hide muted users in timeline/stream (NIP-51 mute list)
