@@ -207,7 +207,7 @@ type zapArg struct {
 }
 
 func callZap(arg *zapArg) error {
-	_, pub, err := getSkAndPub(arg.cfg)
+	pub, err := arg.cfg.pubkey()
 	if err != nil {
 		return err
 	}

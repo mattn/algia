@@ -19,7 +19,6 @@ import (
 	"strings"
 
 	"github.com/nbd-wtf/go-nostr"
-	"github.com/nbd-wtf/go-nostr/keyer"
 	"github.com/nbd-wtf/go-nostr/nipb0/blossom"
 	"github.com/urfave/cli/v2"
 )
@@ -103,18 +102,14 @@ func fileServers(cCtx *cli.Context, cfg *Config) ([]fileServer, error) {
 
 // newMediaClient builds the right backend for the given server.
 func newMediaClient(cfg *Config, fs fileServer) (mediaClient, error) {
-	sk, _, err := getSkAndPub(cfg)
+	signer, err := cfg.signer()
 	if err != nil {
 		return nil, err
 	}
 	if fs.Type == typeNIP96 {
-		return &nip96Client{sk: sk, server: fs.URL}, nil
+		return &nip96Client{signer: signer, server: fs.URL}, nil
 	}
-	signer, err := keyer.NewPlainKeySigner(sk)
-	if err != nil {
-		return nil, err
-	}
-	return &blossomMediaClient{c: blossom.NewClient(fs.URL, signer), sk: sk, server: fs.URL}, nil
+	return &blossomMediaClient{c: blossom.NewClient(fs.URL, signer), signer: signer, server: fs.URL}, nil
 }
 
 // serverClient pairs a configured server with its ready-to-use client.
@@ -291,7 +286,7 @@ func printBlob(cCtx *cli.Context, bd *blossom.BlobDescriptor) {
 // blossomMediaClient adapts blossom.Client to the mediaClient interface.
 type blossomMediaClient struct {
 	c      *blossom.Client
-	sk     string
+	signer Signer
 	server string
 }
 
@@ -309,7 +304,7 @@ func (b *blossomMediaClient) Upload(ctx context.Context, path string) (*blossom.
 	if contentType == "" {
 		contentType = http.DetectContentType(data)
 	}
-	return blossomUploadData(ctx, b.sk, b.server, data, contentType, hash)
+	return blossomUploadData(ctx, b.signer, b.server, data, contentType, hash)
 }
 
 // List enumerates every blob the user owns. blossom.Client.List issues a single
@@ -317,7 +312,7 @@ func (b *blossomMediaClient) Upload(ctx context.Context, path string) (*blossom.
 // pages with the BUD-02 "until" query parameter (uploaded timestamp) until no
 // new blobs come back.
 func (b *blossomMediaClient) List(ctx context.Context) ([]blossom.BlobDescriptor, error) {
-	pub, err := nostr.GetPublicKey(b.sk)
+	pub, err := b.signer.GetPublicKey(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -331,7 +326,7 @@ func (b *blossomMediaClient) List(ctx context.Context) ([]blossom.BlobDescriptor
 		if until > 0 {
 			url = fmt.Sprintf("%s?until=%d", base, until)
 		}
-		auth, err := blossomListAuth(b.sk)
+		auth, err := blossomListAuth(b.signer)
 		if err != nil {
 			return nil, err
 		}
@@ -374,7 +369,7 @@ func (b *blossomMediaClient) List(ctx context.Context) ([]blossom.BlobDescriptor
 // path that strict servers answer with 404. BUD-01 GET auth is optional, so a
 // signed "get" header is attached for servers that require it.
 func (b *blossomMediaClient) Download(ctx context.Context, hash string) ([]byte, error) {
-	auth, err := blossomAuthHeader(b.sk, "get", hash)
+	auth, err := blossomAuthHeader(b.signer, "get", hash)
 	if err != nil {
 		return nil, err
 	}
@@ -398,7 +393,7 @@ func (b *blossomMediaClient) Check(ctx context.Context, hash string) error {
 // nip96Client implements mediaClient against a NIP-96 HTTP file storage server,
 // authenticating each request with NIP-98.
 type nip96Client struct {
-	sk     string
+	signer Signer
 	server string
 	apiURL string // cached result of nip96APIURL
 }
@@ -446,7 +441,7 @@ func (c *nip96Client) uploadData(ctx context.Context, filename, contentType stri
 	}
 
 	body := buf.Bytes()
-	auth, err := nip98Header(c.sk, apiURL, "POST", body)
+	auth, err := nip98Header(c.signer, apiURL, "POST", body)
 	if err != nil {
 		return nil, err
 	}
@@ -488,7 +483,7 @@ func (c *nip96Client) List(ctx context.Context) ([]blossom.BlobDescriptor, error
 	const count = 100
 	for page := 0; ; page++ {
 		pageURL := fmt.Sprintf("%s?page=%d&count=%d", apiURL, page, count)
-		auth, err := nip98Header(c.sk, pageURL, "GET", nil)
+		auth, err := nip98Header(c.signer, pageURL, "GET", nil)
 		if err != nil {
 			return nil, err
 		}
@@ -546,7 +541,7 @@ func (c *nip96Client) Delete(ctx context.Context, hash string) error {
 		return fmt.Errorf("nip96 config: %w", err)
 	}
 	url := apiURL + "/" + hash
-	auth, err := nip98Header(c.sk, url, "DELETE", nil)
+	auth, err := nip98Header(c.signer, url, "DELETE", nil)
 	if err != nil {
 		return err
 	}
@@ -824,10 +819,12 @@ func hashFromURL(u string) string {
 	return base
 }
 
-// authHeader signs ev with sk and encodes it as the "Nostr <base64(event)>"
+// authHeader signs ev with signer and encodes it as the "Nostr <base64(event)>"
 // Authorization value shared by BUD-01 (Blossom) and NIP-98 (HTTP) auth.
-func authHeader(sk string, ev nostr.Event) (string, error) {
-	if err := ev.Sign(sk); err != nil {
+func authHeader(signer Signer, ev nostr.Event) (string, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), signTimeout)
+	defer cancel()
+	if err := signer.SignEvent(ctx, &ev); err != nil {
 		return "", err
 	}
 	b, err := json.Marshal(ev)
@@ -838,9 +835,9 @@ func authHeader(sk string, ev nostr.Event) (string, error) {
 }
 
 // blossomListAuth builds a BUD-02 list Authorization header (kind 24242, t=list)
-// signed with sk. Unlike blossomAuthHeader it carries no "x" target hash.
-func blossomListAuth(sk string) (string, error) {
-	return authHeader(sk, nostr.Event{
+// signed with signer. Unlike blossomAuthHeader it carries no "x" target hash.
+func blossomListAuth(signer Signer) (string, error) {
+	return authHeader(signer, nostr.Event{
 		CreatedAt: nostr.Now(),
 		Kind:      24242,
 		Content:   "blossom stuff",
@@ -852,9 +849,9 @@ func blossomListAuth(sk string) (string, error) {
 }
 
 // blossomAuthHeader builds a BUD-01 Authorization header (kind 24242) signed
-// with sk, with the given action verb and target hash.
-func blossomAuthHeader(sk, verb, hash string) (string, error) {
-	return authHeader(sk, nostr.Event{
+// with signer, with the given action verb and target hash.
+func blossomAuthHeader(signer Signer, verb, hash string) (string, error) {
+	return authHeader(signer, nostr.Event{
 		CreatedAt: nostr.Now(),
 		Kind:      24242,
 		Content:   "blossom stuff",
@@ -869,8 +866,8 @@ func blossomAuthHeader(sk, verb, hash string) (string, error) {
 // blossomPutBlob PUTs body to a Blossom endpoint with a BUD-01 upload
 // authorization for hash and decodes the returned blob descriptor. It backs
 // both the BUD-04 /mirror and BUD-02 /upload requests.
-func blossomPutBlob(ctx context.Context, sk, url string, body []byte, contentType, hash string) (*blossom.BlobDescriptor, error) {
-	auth, err := blossomAuthHeader(sk, "upload", hash)
+func blossomPutBlob(ctx context.Context, signer Signer, url string, body []byte, contentType, hash string) (*blossom.BlobDescriptor, error) {
+	auth, err := blossomAuthHeader(signer, "upload", hash)
 	if err != nil {
 		return nil, err
 	}
@@ -893,21 +890,21 @@ func blossomPutBlob(ctx context.Context, sk, url string, body []byte, contentTyp
 
 // mirrorBlob asks the destination server to mirror the blob at sourceURL
 // (BUD-04 PUT /mirror) and returns the resulting blob descriptor.
-func mirrorBlob(ctx context.Context, sk, server, sourceURL, hash string) (*blossom.BlobDescriptor, error) {
+func mirrorBlob(ctx context.Context, signer Signer, server, sourceURL, hash string) (*blossom.BlobDescriptor, error) {
 	body, err := json.Marshal(map[string]string{"url": sourceURL})
 	if err != nil {
 		return nil, err
 	}
-	return blossomPutBlob(ctx, sk, normalizeServer(server)+"/mirror", body, "application/json", hash)
+	return blossomPutBlob(ctx, signer, normalizeServer(server)+"/mirror", body, "application/json", hash)
 }
 
 // blossomUploadData uploads raw bytes to a Blossom server (BUD-02 PUT /upload),
 // authorizing the given sha256 hash, and returns the resulting blob descriptor.
-func blossomUploadData(ctx context.Context, sk, server string, data []byte, contentType, hash string) (*blossom.BlobDescriptor, error) {
+func blossomUploadData(ctx context.Context, signer Signer, server string, data []byte, contentType, hash string) (*blossom.BlobDescriptor, error) {
 	if contentType == "" {
 		contentType = "application/octet-stream"
 	}
-	return blossomPutBlob(ctx, sk, normalizeServer(server)+"/upload", data, contentType, hash)
+	return blossomPutBlob(ctx, signer, normalizeServer(server)+"/upload", data, contentType, hash)
 }
 
 // fetchAndHash downloads the source URL and returns its bytes, content type and
@@ -933,7 +930,7 @@ func fetchAndHash(ctx context.Context, sourceURL string) (data []byte, contentTy
 // is checked with has: if present the upload is skipped and skipped=true is
 // returned. This catches sources that advertise a different hash than the bytes
 // they serve (so the cheap listing-hash diff cannot match).
-func mirrorTo(ctx context.Context, dest fileServer, sk, sourceURL, hash string, has func(string) bool) (bd *blossom.BlobDescriptor, skipped bool, err error) {
+func mirrorTo(ctx context.Context, dest fileServer, signer Signer, sourceURL, hash string, has func(string) bool) (bd *blossom.BlobDescriptor, skipped bool, err error) {
 	if dest.Type == typeNIP96 {
 		data, ct, real, err := fetchAndHash(ctx, sourceURL)
 		if err != nil {
@@ -946,11 +943,11 @@ func mirrorTo(ctx context.Context, dest fileServer, sk, sourceURL, hash string, 
 		if exts, _ := mime.ExtensionsByType(ct); len(exts) > 0 {
 			name += exts[0]
 		}
-		client := &nip96Client{sk: sk, server: dest.URL}
+		client := &nip96Client{signer: signer, server: dest.URL}
 		bd, err := client.uploadData(ctx, name, ct, data)
 		return bd, false, err
 	}
-	bd, err = mirrorBlob(ctx, sk, dest.URL, sourceURL, hash)
+	bd, err = mirrorBlob(ctx, signer, dest.URL, sourceURL, hash)
 	if err == nil {
 		return bd, false, nil
 	}
@@ -963,7 +960,7 @@ func mirrorTo(ctx context.Context, dest fileServer, sk, sourceURL, hash string, 
 	if has != nil && has(real) {
 		return nil, true, nil
 	}
-	bd, err = blossomUploadData(ctx, sk, dest.URL, data, ct, real)
+	bd, err = blossomUploadData(ctx, signer, dest.URL, data, ct, real)
 	return bd, false, err
 }
 
@@ -1007,9 +1004,9 @@ func tagValue(tags nostr.Tags, key string) string {
 }
 
 // nip98Header builds a NIP-98 "Nostr <base64(event)>" Authorization header
-// (kind 27235) for the given url and HTTP method, signed with sk. When body is
+// (kind 27235) for the given url and HTTP method, signed with signer. When body is
 // non-empty its sha256 is included as a "payload" tag.
-func nip98Header(sk, url, method string, body []byte) (string, error) {
+func nip98Header(signer Signer, url, method string, body []byte) (string, error) {
 	ev := nostr.Event{
 		Kind:      27235,
 		CreatedAt: nostr.Now(),
@@ -1022,7 +1019,7 @@ func nip98Header(sk, url, method string, body []byte) (string, error) {
 		sum := sha256.Sum256(body)
 		ev.Tags = append(ev.Tags, nostr.Tag{"payload", hex.EncodeToString(sum[:])})
 	}
-	return authHeader(sk, ev)
+	return authHeader(signer, ev)
 }
 
 // nip96APIURL fetches the NIP-96 server config and returns its api_url.
@@ -1047,7 +1044,7 @@ func nip96APIURL(ctx context.Context, server string) (string, error) {
 // mirrorFromSource enumerates every blob the user owns on the source server and
 // mirrors each into the destination server(s). When diff is true, blobs already
 // present on a destination (matched by sha256) are skipped.
-func mirrorFromSource(ctx context.Context, cCtx *cli.Context, cfg *Config, servers []fileServer, sk string, source fileServer, diff bool) error {
+func mirrorFromSource(ctx context.Context, cCtx *cli.Context, cfg *Config, servers []fileServer, signer Signer, source fileServer, diff bool) error {
 	srcClient, err := newMediaClient(cfg, source)
 	if err != nil {
 		return err
@@ -1103,7 +1100,7 @@ func mirrorFromSource(ctx context.Context, cCtx *cli.Context, cfg *Config, serve
 				fmt.Printf("%s\t%s\t%s\n", server.URL, hash, humanBytes(int64(blob.Size)))
 				continue
 			}
-			bd, skip, err := mirrorTo(ctx, server, sk, sourceURL, hash, has)
+			bd, skip, err := mirrorTo(ctx, server, signer, sourceURL, hash, has)
 			if err != nil {
 				failed++
 				fmt.Fprintf(os.Stderr, "%s: %s: %v\n", server.URL, hash, err)
@@ -1152,7 +1149,7 @@ func resolveDests(cCtx *cli.Context, cfg *Config, destArgs []string) ([]fileServ
 }
 
 // mirrorBlobs mirrors each source blob into every destination server.
-func mirrorBlobs(ctx context.Context, cCtx *cli.Context, dests []fileServer, sk string, sources []sourceBlob) error {
+func mirrorBlobs(ctx context.Context, cCtx *cli.Context, dests []fileServer, signer Signer, sources []sourceBlob) error {
 	if cCtx.Bool("dry-run") {
 		var planned int
 		var total int64
@@ -1172,7 +1169,7 @@ func mirrorBlobs(ctx context.Context, cCtx *cli.Context, dests []fileServer, sk 
 	var mirrored int
 	for _, s := range sources {
 		for _, server := range dests {
-			bd, _, err := mirrorTo(ctx, server, sk, s.url, s.hash, nil)
+			bd, _, err := mirrorTo(ctx, server, signer, s.url, s.hash, nil)
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "%s: %s: %v\n", server.URL, s.hash, err)
 				continue
@@ -1216,7 +1213,7 @@ func humanBytes(n int64) string {
 
 func doFileMirror(cCtx *cli.Context) error {
 	cfg := cCtx.App.Metadata["config"].(*Config)
-	sk, _, err := getSkAndPub(cfg)
+	signer, err := cfg.signer()
 	if err != nil {
 		return err
 	}
@@ -1250,9 +1247,9 @@ func doFileMirror(cCtx *cli.Context) error {
 			for i, h := range hashes {
 				sources[i] = sourceBlob{url: normalizeServer(source.URL) + "/" + h, hash: h}
 			}
-			return mirrorBlobs(ctx, cCtx, dests, sk, sources)
+			return mirrorBlobs(ctx, cCtx, dests, signer, sources)
 		}
-		return mirrorFromSource(ctx, cCtx, cfg, dests, sk, source, !cCtx.Bool("all"))
+		return mirrorFromSource(ctx, cCtx, cfg, dests, signer, source, !cCtx.Bool("all"))
 	}
 
 	// No --from: each positional <source-url> is mirrored into the -s/config
@@ -1272,7 +1269,7 @@ func doFileMirror(cCtx *cli.Context) error {
 		}
 		sources[i] = sourceBlob{url: src, hash: hash}
 	}
-	return mirrorBlobs(ctx, cCtx, dests, sk, sources)
+	return mirrorBlobs(ctx, cCtx, dests, signer, sources)
 }
 
 // fileCommand returns the "file" parent command with its subcommands. It

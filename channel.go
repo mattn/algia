@@ -161,7 +161,7 @@ func doChannelCreate(cCtx *cli.Context) error {
 	}
 	cfg := cCtx.App.Metadata["config"].(*Config)
 
-	_, pub, err := getSkAndPub(cfg)
+	pub, err := cfg.pubkey()
 	if err != nil {
 		return err
 	}
@@ -196,7 +196,7 @@ func doChannelList(cCtx *cli.Context) error {
 
 	cfg := cCtx.App.Metadata["config"].(*Config)
 
-	_, pub, err := getSkAndPub(cfg)
+	pub, err := cfg.pubkey()
 	if err != nil {
 		return err
 	}
@@ -338,7 +338,7 @@ func doChannelPost(cCtx *cli.Context) error {
 
 	cfg := cCtx.App.Metadata["config"].(*Config)
 
-	_, pub, err := getSkAndPub(cfg)
+	pub, err := cfg.pubkey()
 	if err != nil {
 		return err
 	}

@@ -94,20 +94,6 @@ func isStandardList(kind int) bool {
 	return kind >= 10000 && kind < 20000
 }
 
-func getSkAndPub(cfg *Config) (string, string, error) {
-	var sk string
-	if _, s, err := nip19.Decode(cfg.PrivateKey); err == nil {
-		sk = s.(string)
-	} else {
-		return "", "", err
-	}
-	pub, err := nostr.GetPublicKey(sk)
-	if err != nil {
-		return "", "", err
-	}
-	return sk, pub, nil
-}
-
 // resolveKindAndName resolves the kind and name from --kind flag and positional args.
 // For standard lists (kind 10000-19999), name is not used.
 // For sets (kind >= 30000), the first positional arg is the name.
@@ -147,7 +133,7 @@ type listEntry struct {
 }
 
 func callList(arg *listArg) ([]listEntry, error) {
-	_, pub, err := getSkAndPub(arg.cfg)
+	pub, err := arg.cfg.pubkey()
 	if err != nil {
 		return nil, err
 	}
@@ -285,7 +271,7 @@ type listShowArg struct {
 }
 
 func callListShow(arg *listShowArg) (*nostr.Event, error) {
-	_, pub, err := getSkAndPub(arg.cfg)
+	pub, err := arg.cfg.pubkey()
 	if err != nil {
 		return nil, err
 	}
@@ -447,7 +433,7 @@ type listAddArg struct {
 }
 
 func callListAdd(arg *listAddArg) error {
-	_, pub, err := getSkAndPub(arg.cfg)
+	pub, err := arg.cfg.pubkey()
 	if err != nil {
 		return err
 	}
@@ -535,7 +521,7 @@ type listRemoveArg struct {
 }
 
 func callListRemove(arg *listRemoveArg) error {
-	_, pub, err := getSkAndPub(arg.cfg)
+	pub, err := arg.cfg.pubkey()
 	if err != nil {
 		return err
 	}
@@ -629,7 +615,7 @@ type listDeleteArg struct {
 }
 
 func callListDelete(arg *listDeleteArg) error {
-	_, pub, err := getSkAndPub(arg.cfg)
+	pub, err := arg.cfg.pubkey()
 	if err != nil {
 		return err
 	}

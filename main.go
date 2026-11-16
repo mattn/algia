@@ -17,14 +17,11 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/nbd-wtf/go-nostr/nip59"
 	"github.com/urfave/cli/v2"
 
 	"github.com/fatih/color"
 	"github.com/nbd-wtf/go-nostr"
-	"github.com/nbd-wtf/go-nostr/nip04"
 	"github.com/nbd-wtf/go-nostr/nip19"
-	"github.com/nbd-wtf/go-nostr/nip44"
 )
 
 const name = "algia"
@@ -67,7 +64,9 @@ type Config struct {
 	profileChanged bool
 	verbose        bool
 	tempRelay      bool
-	sk             string
+	profileName    string
+	signerCache    Signer
+	signerMu       sync.Mutex
 	authed         map[string]struct{} // relays already NIP-42 authenticated this run
 	authedMu       sync.Mutex
 }
@@ -142,6 +141,7 @@ func loadConfig(profile string) (*Config, error) {
 	if err != nil {
 		return nil, err
 	}
+	cfg.profileName = profile
 	if len(cfg.Relays) == 0 {
 		cfg.Relays = map[string]Relay{}
 		cfg.Relays["wss://relay.nostr.band"] = Relay{
@@ -171,11 +171,7 @@ func loadConfig(profile string) (*Config, error) {
 	// Initialize pool with read relays
 	cfg.pool = nostr.NewSimplePool(context.Background(),
 		nostr.WithAuthHandler(func(ctx context.Context, authEvent nostr.RelayEvent) error {
-			if _, s, err := nip19.Decode(cfg.PrivateKey); err == nil {
-				return authEvent.Sign(s.(string))
-			} else {
-				return err
-			}
+			return cfg.sign(authEvent.Event)
 		}),
 	)
 	return &cfg, nil
@@ -225,7 +221,7 @@ func missingProfilePubkeys(profiles map[string]Profile, follows []string, limit 
 
 // CheckUpdate is
 func (cfg *Config) CheckUpdate(profile string) (map[string]Profile, error) {
-	_, pub, err := getSkAndPub(cfg)
+	pub, err := cfg.pubkey()
 	if err != nil {
 		return nil, err
 	}
@@ -376,14 +372,12 @@ func (cfg *Config) CheckUpdate(profile string) (map[string]Profile, error) {
 // GetProfile retrieves a profile by npub, fetching from nostr if not cached
 func (cfg *Config) GetProfile(npub string) (*Profile, error) {
 	if npub == "" {
-		if _, s, err := nip19.Decode(cfg.PrivateKey); err == nil {
-			if pub, err := nostr.GetPublicKey(s.(string)); err != nil {
-				return nil, err
-			} else if np, err := nip19.EncodePublicKey(pub); err == nil {
-				npub = np
-			}
-		} else {
+		pub, err := cfg.pubkey()
+		if err != nil {
 			return nil, err
+		}
+		if np, err := nip19.EncodePublicKey(pub); err == nil {
+			npub = np
 		}
 	}
 
@@ -580,7 +574,7 @@ func (cfg *Config) saveProfiles(profile string) error {
 }
 
 // Decode is
-func (cfg *Config) Decode(ev *nostr.Event, sk string, pub string) error {
+func (cfg *Config) Decode(ev *nostr.Event, signer Signer, pub string) error {
 	tag := ev.Tags.GetFirst([]string{"p"})
 	sp := pub
 	if tag != nil {
@@ -593,11 +587,9 @@ func (cfg *Config) Decode(ev *nostr.Event, sk string, pub string) error {
 			sp = ev.PubKey
 		}
 	}
-	ss, err := nip04.ComputeSharedSecret(sp, sk)
-	if err != nil {
-		return err
-	}
-	content, err := nip04.Decrypt(ev.Content, ss)
+	ctx, cancel := context.WithTimeout(context.Background(), signTimeout)
+	defer cancel()
+	content, err := signer.NIP04Decrypt(ctx, ev.Content, sp)
 	if err != nil {
 		return err
 	}
@@ -784,9 +776,21 @@ func (cfg *Config) QueryEvents(ctx context.Context, filters nostr.Filters) ([]*n
 		fmt.Printf("Filters: %+v\n", filters)
 	}
 
-	sk, pub, err := getSkAndPub(cfg)
+	pub, err := cfg.pubkey()
 	if err != nil {
 		return nil, err
+	}
+	// The signer is only needed to decrypt DMs and private lists; connect to
+	// a remote signer lazily so plain queries never wait on it.
+	var signer Signer
+	getSigner := func() (Signer, error) {
+		if signer == nil {
+			var err error
+			if signer, err = cfg.signer(); err != nil {
+				return nil, err
+			}
+		}
+		return signer, nil
 	}
 
 	for relayEvent := range cfg.pool.SubManyEose(ctx, relays, filters) {
@@ -797,17 +801,19 @@ func (cfg *Config) QueryEvents(ctx context.Context, filters nostr.Filters) ([]*n
 
 		if _, ok := seen[ev.ID]; !ok {
 			if ev.Kind == nostr.KindEncryptedDirectMessage || ev.Kind == nostr.KindCategorizedBookmarksList {
-				if err := cfg.Decode(ev, sk, pub); err != nil {
+				signer, err := getSigner()
+				if err != nil {
+					return nil, err
+				}
+				if err := cfg.Decode(ev, signer, pub); err != nil {
 					continue
 				}
 			} else if ev.Kind == nostr.KindGiftWrap {
-				eev, err := nip59.GiftUnwrap(*ev, func(otherpubkey, ciphertext string) (string, error) {
-					conversationKey, err := nip44.GenerateConversationKey(otherpubkey, sk)
-					if err != nil {
-						return "", err
-					}
-					return nip44.Decrypt(ciphertext, conversationKey)
-				})
+				signer, err := getSigner()
+				if err != nil {
+					return nil, err
+				}
+				eev, err := giftUnwrap(*ev, signer)
 				if err == nil {
 					id := ev.ID
 					ev = &eev
@@ -845,13 +851,6 @@ const authChallengeWait = 1 * time.Second
 // which the pool's reactive auth handler never sees -- so without this, events
 // would silently never arrive. Relays without the flag are left untouched.
 func (cfg *Config) preAuth(ctx context.Context, relays []string) {
-	var sk string
-	if _, s, err := nip19.Decode(cfg.PrivateKey); err == nil {
-		sk = s.(string)
-	} else {
-		return
-	}
-
 	var wg sync.WaitGroup
 	for _, url := range relays {
 		if v, ok := cfg.Relays[url]; !ok || !v.Auth {
@@ -874,9 +873,7 @@ func (cfg *Config) preAuth(ctx context.Context, relays []string) {
 			}
 			actx, cancel := context.WithTimeout(ctx, 3*time.Second)
 			defer cancel()
-			err = relay.Auth(actx, func(ev *nostr.Event) error {
-				return ev.Sign(sk)
-			})
+			err = relay.Auth(actx, cfg.sign)
 			if err == nil {
 				cfg.markAuthed(url)
 			}
@@ -972,15 +969,8 @@ func (cfg *Config) StreamEvents(filters nostr.Filters, closeOnEOSE bool, callbac
 		eventChan = cfg.pool.SubMany(ctx, relays, filters)
 	}
 
-	var sk string
-	var pub string
-	var err error
-	if _, s, err := nip19.Decode(cfg.PrivateKey); err == nil {
-		sk = s.(string)
-	} else {
-		return errors.New("invalid private key")
-	}
-	if pub, err = nostr.GetPublicKey(sk); err != nil {
+	pub, err := cfg.pubkey()
+	if err != nil {
 		return err
 	}
 
@@ -991,17 +981,19 @@ func (cfg *Config) StreamEvents(filters nostr.Filters, closeOnEOSE bool, callbac
 		}
 
 		if ev.Kind == nostr.KindEncryptedDirectMessage || ev.Kind == nostr.KindCategorizedBookmarksList {
-			if err := cfg.Decode(ev, sk, pub); err != nil {
+			signer, err := cfg.signer()
+			if err != nil {
+				return err
+			}
+			if err := cfg.Decode(ev, signer, pub); err != nil {
 				continue
 			}
 		} else if ev.Kind == nostr.KindGiftWrap {
-			eev, err := nip59.GiftUnwrap(*ev, func(otherpubkey, ciphertext string) (string, error) {
-				conversationKey, err := nip44.GenerateConversationKey(otherpubkey, sk)
-				if err != nil {
-					return "", err
-				}
-				return nip44.Decrypt(ciphertext, conversationKey)
-			})
+			signer, err := cfg.signer()
+			if err != nil {
+				return err
+			}
+			eev, err := giftUnwrap(*ev, signer)
 			if err != nil {
 				continue
 			}
@@ -1125,18 +1117,7 @@ func doReport(cCtx *cli.Context) error {
 		Content: fmt.Sprintf("Reported: %s", reportType),
 	}
 
-	// Sign event
-	sk := cfg.sk
-	if sk == "" {
-		if _, s, err := nip19.Decode(cfg.PrivateKey); err == nil {
-			sk = s.(string)
-		}
-	}
-	if sk == "" {
-		return fmt.Errorf("no private key found")
-	}
-
-	pub, err := nostr.GetPublicKey(sk)
+	pub, err := cfg.pubkey()
 	if err != nil {
 		return err
 	}
