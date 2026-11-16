@@ -484,12 +484,42 @@ func (cfg *Config) Do(ctx context.Context, r Relay, f func(context.Context, *nos
 	wg.Wait()
 }
 
+// publishEvent publishes ev to relay. When the relay rejects it with
+// "auth-required:" (NIP-42), it authenticates on that connection and retries
+// once. Connections opened by Do are not the pool's, so an earlier preAuth
+// does not cover them.
+func (cfg *Config) publishEvent(ctx context.Context, relay *nostr.Relay, ev nostr.Event) error {
+	err := relay.Publish(ctx, ev)
+	if err == nil || !strings.Contains(err.Error(), "auth-required:") {
+		return err
+	}
+	// The AUTH challenge may arrive just after the OK that rejected the event.
+	var aerr error
+	for i := 0; i < 3; i++ {
+		if aerr = relay.Auth(ctx, cfg.sign); aerr == nil {
+			break
+		}
+		select {
+		case <-ctx.Done():
+			return err
+		case <-time.After(200 * time.Millisecond):
+		}
+	}
+	if aerr != nil {
+		return fmt.Errorf("%w (auth failed: %v)", err, aerr)
+	}
+	if cfg.verbose {
+		fmt.Fprintln(os.Stderr, "authenticated to", relay.URL)
+	}
+	return relay.Publish(ctx, ev)
+}
+
 // publish sends ev to the relays selected by r, reporting per-relay errors to
 // stderr, and returns how many relays accepted it.
 func (cfg *Config) publish(ctx context.Context, r Relay, ev nostr.Event) int64 {
 	var success atomic.Int64
 	cfg.Do(ctx, r, func(ctx context.Context, relay *nostr.Relay) bool {
-		if err := relay.Publish(ctx, ev); err != nil {
+		if err := cfg.publishEvent(ctx, relay, ev); err != nil {
 			fmt.Fprintln(os.Stderr, relay.URL, err)
 		} else {
 			success.Add(1)
@@ -1167,7 +1197,7 @@ func doReport(cCtx *cli.Context) error {
 		}
 		defer relay.Close()
 
-		err = relay.Publish(ctx, *report)
+		err = cfg.publishEvent(ctx, relay, *report)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Failed to publish to relay %s: %v\n", relayURL, err)
 		} else {

@@ -639,7 +639,7 @@ func doStream(cCtx *cli.Context) error {
 				return err
 			}
 			cfg.Do(context.Background(), Relay{Write: true}, func(ctx context.Context, relay *nostr.Relay) bool {
-				relay.Publish(ctx, evr)
+				cfg.publishEvent(ctx, relay, evr)
 				return true
 			})
 		}
@@ -935,7 +935,7 @@ func callDelete(arg *deleteArg) error {
 			fmt.Fprintln(os.Stderr, url, err)
 			continue
 		}
-		if err := relay.Publish(arg.ctx, *ev); err != nil {
+		if err := arg.cfg.publishEvent(arg.ctx, relay, *ev); err != nil {
 			fmt.Fprintln(os.Stderr, url, err)
 		} else {
 			success++
@@ -1099,7 +1099,7 @@ func callReport(arg *reportArg) error {
 		}
 		defer relay.Close()
 
-		err = relay.Publish(ctx, *report)
+		err = arg.cfg.publishEvent(ctx, relay, *report)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Failed to publish to relay %s: %v\n", relayURL, err)
 		} else {
@@ -1204,7 +1204,7 @@ func callReportProfile(arg *reportProfileArg) error {
 		}
 		defer relay.Close()
 
-		err = relay.Publish(ctx, *report)
+		err = arg.cfg.publishEvent(ctx, relay, *report)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Failed to publish to relay %s: %v\n", relayURL, err)
 		} else {
