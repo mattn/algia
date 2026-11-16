@@ -198,21 +198,20 @@ func doDMTimeline(cCtx *cli.Context) error {
 		}
 	}
 
-	// get timeline with combined filters for both kind 4 and 1059
-	filters = nostr.Filters{
-		{
-			Kinds:   []int{nostr.KindEncryptedDirectMessage},
-			Authors: []string{pk},
-			Tags:    nostr.TagMap{"p": []string{pub}},
-			Limit:   9999,
-		},
-	}
-	// Collect all events, then sort and display top n
-	if eevs, err := cfg.QueryEvents(context.Background(), filters); err != nil {
-		return err
-	} else {
-		for _, ev := range eevs {
-			evs = append(evs, ev)
+	// Messages sent to the peer; identical to the query above for "-u me".
+	if pub != pk {
+		filters = nostr.Filters{
+			{
+				Kinds:   []int{nostr.KindEncryptedDirectMessage},
+				Authors: []string{pk},
+				Tags:    nostr.TagMap{"p": []string{pub}},
+				Limit:   9999,
+			},
+		}
+		if eevs, err := cfg.QueryEvents(context.Background(), filters); err != nil {
+			return err
+		} else {
+			evs = append(evs, eevs...)
 		}
 	}
 
@@ -225,6 +224,11 @@ func doDMTimeline(cCtx *cli.Context) error {
 		},
 	}
 	if eevs, err := cfg.QueryEvents(context.Background(), filters); err == nil {
+		// The same rumor arrives in several gift wraps (the copy sent to the
+		// recipient and the one kept by the sender both reach us for DMs to
+		// ourselves, and clients may re-send), so dedupe on the rumor itself.
+		// QueryEvents keeps the wrap's ID on unwrapped events, hence GetID.
+		seenRumor := map[string]bool{}
 		for _, ev := range eevs {
 			// Validate participants for kind 1059
 			if ev.Kind != 14 {
@@ -233,6 +237,11 @@ func doDMTimeline(cCtx *cli.Context) error {
 			if !((ev.PubKey == pub && ev.Tags.GetFirst([]string{"p"}).Value() == pk) ||
 				(ev.PubKey == pk && ev.Tags.GetFirst([]string{"p"}).Value() == pub)) {
 				continue
+			}
+			if id := ev.GetID(); seenRumor[id] {
+				continue
+			} else {
+				seenRumor[id] = true
 			}
 			evs = append(evs, ev)
 		}
