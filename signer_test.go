@@ -6,6 +6,7 @@ import (
 
 	"github.com/nbd-wtf/go-nostr"
 	"github.com/nbd-wtf/go-nostr/nip19"
+	"github.com/nbd-wtf/go-nostr/nip49"
 )
 
 func TestIsRemoteSigner(t *testing.T) {
@@ -136,5 +137,46 @@ func TestGiftWrapRoundTrip(t *testing.T) {
 	}
 	if got.Content != "secret" || got.PubKey != testDelegatorPub {
 		t.Fatalf("unwrapped %+v", got)
+	}
+}
+
+func TestEncryptedKeySigner(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Setenv("HOME", t.TempDir())
+	ncryptsec, err := nip49.Encrypt(testDelegateeSk, "pass", 4, nip49.ClientDoesNotTrackThisData)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	t.Setenv(passwordEnv, "wrong")
+	cfg := &Config{PrivateKey: ncryptsec, profileName: "e"}
+	if _, err := cfg.signer(); err == nil {
+		t.Fatal("expected error with wrong password")
+	}
+
+	t.Setenv(passwordEnv, "pass")
+	cfg = &Config{PrivateKey: ncryptsec, profileName: "e"}
+	ev := nostr.Event{Kind: 1, Content: "x", CreatedAt: nostr.Now()}
+	if err := cfg.sign(&ev); err != nil {
+		t.Fatal(err)
+	}
+	if ev.PubKey != testDelegateePub {
+		t.Fatalf("signed as %s", ev.PubKey)
+	}
+	if sk, err := cfg.localSecretKey(); err != nil || sk != testDelegateeSk {
+		t.Fatalf("localSecretKey() = %q, %v", sk, err)
+	}
+
+	// The public key is now cached: a fresh run resolves it without the
+	// password (a wrong one would fail if it were used).
+	t.Setenv(passwordEnv, "wrong")
+	cfg = &Config{PrivateKey: ncryptsec, profileName: "e"}
+	if pub, err := cfg.pubkey(); err != nil || pub != testDelegateePub {
+		t.Fatalf("pubkey() = %q, %v", pub, err)
+	}
+	// The cache is tied to this exact ncryptsec.
+	other, _ := nip49.Encrypt(testDelegatorSk, "pass", 4, nip49.ClientDoesNotTrackThisData)
+	if pub := loadCachedPubkey("e", other); pub != "" {
+		t.Fatalf("cache leaked to another key: %s", pub)
 	}
 }
