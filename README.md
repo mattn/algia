@@ -92,12 +92,12 @@ The public key is cached in `~/.config/algia/ncryptsec-pubkey.json`
 
 Instead of keeping an nsec in the config file, you can let a
 [NIP-46](https://github.com/nostr-protocol/nips/blob/master/46.md) remote signer
-(bunker) such as nsec.app, Amber or `nak bunker` sign for you. Put the bunker URL
+(bunker) such as Amber, Signet or `nak bunker` sign for you. Put the bunker URL
 (or a NIP-05 identifier that publishes NIP-46 relays) in `privatekey`:
 
 ```json
 {
-  "privatekey": "bunker://<remote-signer-pubkey>?relay=wss://relay.nsec.app&secret=xxxx"
+  "privatekey": "bunker://<remote-signer-pubkey>?relay=wss://relay.example.com&secret=xxxx"
 }
 ```
 
