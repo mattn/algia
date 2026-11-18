@@ -1478,6 +1478,7 @@ func main() {
 			},
 			fileCommand(),
 			delegationCommand(),
+			keyCommand(),
 		},
 		Before: func(cCtx *cli.Context) error {
 			switch cCtx.Args().Get(0) {

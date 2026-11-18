@@ -31,6 +31,7 @@ COMMANDS:
    channel       public chat channels (create/list/timeline/stream/post)
    group         relay-based groups / channels (list/timeline/stream/post/delete/react/join/leave)
    file          Blossom/NIP-96 media servers (upload/list/get/delete/check/mirror)
+   key           private key utilities (encrypt)
    profile       show profile
    powa          post ぽわ〜
    puru          post ぷる
@@ -70,6 +71,22 @@ Minimal configuration. Need to be at ~/.config/algia/config.json
   "privatekey": "nsecXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX"
 }
 ```
+
+### Encrypted private key (NIP-49)
+
+`privatekey` may be a password-encrypted
+[NIP-49](https://github.com/nostr-protocol/nips/blob/master/49.md) `ncryptsec`
+instead of a plain nsec. To convert the current profile's nsec:
+
+```
+algia key encrypt        # asks for a new password, prints ncryptsec1...
+```
+
+then replace `privatekey` with the printed value. algia asks for the password on
+the terminal when a command needs the key (or reads it from `$ALGIA_PASSWORD`).
+The public key is cached in `~/.config/algia/ncryptsec-pubkey.json`
+(`ncryptsec-pubkey-<profile>.json` with `-a`), so read-only commands such as
+`timeline` do not ask for it.
 
 ### Remote signer (NIP-46)
 
@@ -203,7 +220,7 @@ If you want to zap via Nostr Wallet Connect, please add `nwc-uri` which are prov
 * [x] zap
 * [x] upload images
 * [x] NIP-46 remote signer (bunker)
-* [ ] NIP-49 encrypted private key (ncryptsec)
+* [x] NIP-49 encrypted private key (ncryptsec)
 * [ ] follow / unfollow (NIP-02)
 * [ ] hide muted users in timeline/stream (NIP-51 mute list)
 * [ ] NIP-22 comments (kind 1111)

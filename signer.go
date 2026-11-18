@@ -80,7 +80,7 @@ func decodeLocalKey(key string) (string, error) {
 		return "", err
 	}
 	if prefix != "nsec" {
-		return "", fmt.Errorf("privatekey must be an nsec, a bunker:// URL or a NIP-05 identifier, got %q", prefix)
+		return "", fmt.Errorf("privatekey must be an nsec, an ncryptsec, a bunker:// URL or a NIP-05 identifier, got %q", prefix)
 	}
 	return s.(string), nil
 }
@@ -175,6 +175,20 @@ func (cfg *Config) signer() (Signer, error) {
 	var err error
 	if isRemoteSigner(cfg.PrivateKey) {
 		s, err = cfg.connectBunker()
+	} else if isEncryptedKey(cfg.PrivateKey) {
+		var sk string
+		if sk, err = decryptKey(cfg.PrivateKey); err == nil {
+			var ls *localSigner
+			if ls, err = newLocalSigner(sk); err == nil {
+				s = ls
+				pub, _ := ls.GetPublicKey(context.Background())
+				if loadCachedPubkey(cfg.profileName, cfg.PrivateKey) != pub {
+					if err := saveCachedPubkey(cfg.profileName, cfg.PrivateKey, pub); err != nil {
+						fmt.Fprintln(os.Stderr, "warning: cannot save public key cache:", err)
+					}
+				}
+			}
+		}
 	} else {
 		var sk string
 		if sk, err = decodeLocalKey(cfg.PrivateKey); err == nil {
@@ -288,12 +302,17 @@ func parseBunkerInput(ctx context.Context, input string) (remote string, relays 
 	return remote, relays, secret, nil
 }
 
-// pubkey returns the user's public key. With a remote signer the key stored in
-// the session is used, so read-only commands do not contact the signer.
+// pubkey returns the user's public key. With a remote signer or an encrypted
+// key the cached public key is used, so read-only commands neither contact the
+// signer nor ask for the password.
 func (cfg *Config) pubkey() (string, error) {
 	if isRemoteSigner(cfg.PrivateKey) {
 		if sess := loadBunkerSession(cfg.profileName, cfg.PrivateKey); sess != nil && sess.PubKey != "" {
 			return sess.PubKey, nil
+		}
+	} else if isEncryptedKey(cfg.PrivateKey) {
+		if pub := loadCachedPubkey(cfg.profileName, cfg.PrivateKey); pub != "" {
+			return pub, nil
 		}
 	}
 	s, err := cfg.signer()
@@ -311,7 +330,11 @@ func (cfg *Config) localSecretKey() (string, error) {
 	if isRemoteSigner(cfg.PrivateKey) {
 		return "", errNeedLocalKey
 	}
-	return decodeLocalKey(cfg.PrivateKey)
+	s, err := cfg.signer()
+	if err != nil {
+		return "", err
+	}
+	return s.(*localSigner).sk, nil
 }
 
 // sign signs ev with the profile's signer.
