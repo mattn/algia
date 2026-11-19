@@ -214,11 +214,10 @@ func doGroupStream(cCtx *cli.Context) error {
 		return errors.New("no read relays available")
 	}
 
-	cfg.StreamLive(relays, nostr.Filter{
+	return cfg.StreamLive(relays, nostr.Filter{
 		Kinds: []int{nostr.KindSimpleGroupChatMessage},
 		Tags:  nostr.TagMap{"h": []string{id}},
 	}, j)
-	return nil
 }
 
 // buildGroupPostEvent constructs an unsigned kind 9 message for a NIP-29 group.
