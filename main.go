@@ -448,6 +448,9 @@ func (cfg *Config) GetProfile(npub string) (*Profile, error) {
 // Do is
 func (cfg *Config) Do(ctx context.Context, r Relay, f func(context.Context, *nostr.Relay) bool) {
 	var wg sync.WaitGroup
+	var mu sync.Mutex
+	var connErrs []error
+	var connected atomic.Int64
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 	for k, v := range cfg.Relays {
@@ -473,8 +476,12 @@ func (cfg *Config) Do(ctx context.Context, r Relay, f func(context.Context, *nos
 				if cfg.verbose {
 					fmt.Fprintln(os.Stderr, err)
 				}
+				mu.Lock()
+				connErrs = append(connErrs, fmt.Errorf("%s: %w", k, err))
+				mu.Unlock()
 				return
 			}
+			connected.Add(1)
 			if !f(ctx, relay) {
 				ctx.Done()
 			}
@@ -482,6 +489,14 @@ func (cfg *Config) Do(ctx context.Context, r Relay, f func(context.Context, *nos
 		}(&wg, k, v)
 	}
 	wg.Wait()
+	// Without a single connection the caller only sees "nothing happened";
+	// say why, unless verbose already printed each error.
+	if connected.Load() == 0 && len(connErrs) > 0 && !cfg.verbose {
+		fmt.Fprintln(os.Stderr, "cannot connect to any relay:")
+		for _, err := range connErrs {
+			fmt.Fprintln(os.Stderr, " ", err)
+		}
+	}
 }
 
 // publishEvent publishes ev to relay. When the relay rejects it with
@@ -797,6 +812,11 @@ func (cfg *Config) QueryEvents(ctx context.Context, filters nostr.Filters) ([]*n
 		return nil, errors.New("no read relays available")
 	}
 
+	relays, err := cfg.connectRelays(relays)
+	if err != nil {
+		return nil, err
+	}
+
 	cfg.preAuth(ctx, relays)
 
 	seen := make(map[string]*nostr.Event)
@@ -866,6 +886,39 @@ func (cfg *Config) QueryEvents(ctx context.Context, filters nostr.Filters) ([]*n
 	})
 
 	return evs, nil
+}
+
+// connectRelays connects to relays in parallel through the pool and returns
+// the ones that connected. The pool's subscription helpers silently skip
+// relays they cannot reach, so without this a network outage (e.g. Wi-Fi off)
+// just yields no events and no error. It fails only when no relay connects.
+func (cfg *Config) connectRelays(relays []string) ([]string, error) {
+	var mu sync.Mutex
+	var wg sync.WaitGroup
+	var connected []string
+	var errs []error
+	for _, url := range relays {
+		wg.Add(1)
+		go func(url string) {
+			defer wg.Done()
+			_, err := cfg.pool.EnsureRelay(url)
+			mu.Lock()
+			defer mu.Unlock()
+			if err != nil {
+				errs = append(errs, fmt.Errorf("%s: %w", url, err))
+				if cfg.verbose {
+					fmt.Fprintln(os.Stderr, url, err)
+				}
+				return
+			}
+			connected = append(connected, url)
+		}(url)
+	}
+	wg.Wait()
+	if len(connected) == 0 {
+		return nil, fmt.Errorf("cannot connect to any relay: %w", errors.Join(errs...))
+	}
+	return connected, nil
 }
 
 // authChallengeWait is how long to wait after connecting for a relay to send
@@ -989,6 +1042,11 @@ func (cfg *Config) StreamEvents(filters nostr.Filters, closeOnEOSE bool, callbac
 		return errors.New("no read relays available")
 	}
 
+	relays, err := cfg.connectRelays(relays)
+	if err != nil {
+		return err
+	}
+
 	cfg.preAuth(ctx, relays)
 
 	// Choose SubMany or SubManyEose based on closeOnEOSE flag
@@ -1043,7 +1101,11 @@ func (cfg *Config) StreamEvents(filters nostr.Filters, closeOnEOSE bool, callbac
 // also suppresses backlog replays that the pool triggers when it silently
 // reconnects a dropped subscription. Auth-required relays are authenticated
 // first. It blocks until the subscription ends.
-func (cfg *Config) StreamLive(relays []string, filter nostr.Filter, j bool) {
+func (cfg *Config) StreamLive(relays []string, filter nostr.Filter, j bool) error {
+	relays, err := cfg.connectRelays(relays)
+	if err != nil {
+		return err
+	}
 	ctx := context.Background()
 	cfg.preAuth(ctx, relays)
 
@@ -1060,6 +1122,7 @@ func (cfg *Config) StreamLive(relays []string, filter nostr.Filter, j bool) {
 			cfg.PrintEvent(ie.Event, false, false)
 		}
 	}
+	return nil
 }
 
 func doVersion(cCtx *cli.Context) error {

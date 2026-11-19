@@ -716,10 +716,12 @@ func callTimeline(arg *timelineArg) ([]*nostr.Event, error) {
 
 	// Collect all events
 	events := []*nostr.Event{}
-	arg.cfg.StreamEvents(filters, true, func(ev *nostr.Event) bool {
+	if err := arg.cfg.StreamEvents(filters, true, func(ev *nostr.Event) bool {
 		events = append(events, ev)
 		return true
-	})
+	}); err != nil {
+		return nil, err
+	}
 
 	// Sort by timestamp descending (newest last)
 	sort.Slice(events, func(i, j int) bool {

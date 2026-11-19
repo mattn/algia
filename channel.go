@@ -302,11 +302,10 @@ func doChannelStream(cCtx *cli.Context) error {
 		return errors.New("no read relays available")
 	}
 
-	cfg.StreamLive(relays, nostr.Filter{
+	return cfg.StreamLive(relays, nostr.Filter{
 		Kinds: []int{nostr.KindChannelMessage},
 		Tags:  nostr.TagMap{"e": []string{channelID}},
 	}, j)
-	return nil
 }
 
 func doChannelPost(cCtx *cli.Context) error {
