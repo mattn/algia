@@ -224,7 +224,7 @@ If you want to zap via Nostr Wallet Connect, please add `nwc-uri` which are prov
 * [ ] follow / unfollow (NIP-02)
 * [ ] hide muted users in timeline/stream (NIP-51 mute list)
 * [ ] NIP-22 comments (kind 1111)
-* [ ] NIP-40 expiration
+* [x] NIP-40 expiration
 * [ ] NIP-13 proof of work
 * [ ] NIP-38 user status
 * [ ] NIP-28 channel metadata / hide message / mute user

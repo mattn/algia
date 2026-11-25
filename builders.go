@@ -144,6 +144,9 @@ func buildPostEvent(arg *postArg, pubkey string, mentionPubkeys []string, now no
 	if arg.geohash != "" {
 		ev.Tags = ev.Tags.AppendUnique(nostr.Tag{"g", arg.geohash})
 	}
+	if arg.expiration > 0 {
+		ev.Tags = ev.Tags.AppendUnique(nostr.Tag{"expiration", fmt.Sprint(arg.expiration)})
+	}
 
 	// One ["t", tag] per hashtag: clients read each t tag's value, so a single
 	// combined ["t", a, b, ...] tag would only expose the first hashtag.
@@ -175,6 +178,8 @@ type replyOpts struct {
 	Sensitive string
 	Geohash   string
 	Emojis    []string // "name=url" pairs from --emoji flags
+	// Expiration is the NIP-40 expiration unix time; 0 means none.
+	Expiration nostr.Timestamp
 }
 
 // buildReplyEvent constructs an unsigned kind 1 (text-note) reply event.
@@ -216,6 +221,9 @@ func buildReplyEvent(pubkey string, opts replyOpts, cfgEmojis map[string]string,
 	}
 	if opts.Geohash != "" {
 		ev.Tags = ev.Tags.AppendUnique(nostr.Tag{"g", opts.Geohash})
+	}
+	if opts.Expiration > 0 {
+		ev.Tags = ev.Tags.AppendUnique(nostr.Tag{"expiration", fmt.Sprint(opts.Expiration)})
 	}
 	// One ["t", tag] per hashtag: clients read each t tag's value, so a single
 	// combined ["t", a, b, ...] tag would only expose the first hashtag.
