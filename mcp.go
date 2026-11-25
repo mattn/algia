@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"time"
 
 	"github.com/urfave/cli/v2"
 
@@ -81,11 +82,17 @@ func doMcp(cCtx *cli.Context) error {
 
 	s.AddTool(mcp.NewTool("post_nostr_note",
 		mcp.WithString("content", mcp.Description("Content of the note"), mcp.Required()),
+		mcp.WithString("expiration", mcp.Description("Optional (NIP-40): expire the note after a duration from now (e.g. 30m, 12h, 7d) or at a unix timestamp"), mcp.DefaultString("")),
 	), func(ctx context.Context, r mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		err := callPost(&postArg{
-			ctx:     ctx,
-			cfg:     cCtx.App.Metadata["config"].(*Config),
-			content: required[string](r, "content"),
+		expiration, err := parseExpiration(r.GetString("expiration", ""), time.Now())
+		if err != nil {
+			return mcp.NewToolResultError(err.Error()), nil
+		}
+		err = callPost(&postArg{
+			ctx:        ctx,
+			cfg:        cCtx.App.Metadata["config"].(*Config),
+			content:    required[string](r, "content"),
+			expiration: expiration,
 		})
 		if err != nil {
 			return mcp.NewToolResultError(err.Error()), nil

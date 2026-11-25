@@ -5,6 +5,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/nbd-wtf/go-nostr"
 	"github.com/nbd-wtf/go-nostr/nip19"
@@ -528,5 +529,73 @@ func TestFindOwnEventReferencing_NoRelays(t *testing.T) {
 	cfg := &Config{Relays: map[string]Relay{}}
 	if id := findOwnEventReferencing(context.Background(), cfg, nostr.KindReaction, testPub, testTargetID); id != "" {
 		t.Errorf("got=%q want empty", id)
+	}
+}
+
+// --- NIP-40 expiration ---
+
+func TestBuildPostEvent_Expiration(t *testing.T) {
+	arg := newPostArg("hello")
+	arg.expiration = 1700003600
+	ev, err := buildPostEvent(arg, testPub, nil, 1700000000)
+	if err != nil {
+		t.Fatalf("err=%v", err)
+	}
+	if tag := ev.Tags.GetFirst([]string{"expiration", ""}); tag == nil || (*tag)[1] != "1700003600" {
+		t.Errorf("expiration tag = %v", tag)
+	}
+
+	ev, err = buildPostEvent(newPostArg("hello"), testPub, nil, 1700000000)
+	if err != nil {
+		t.Fatalf("err=%v", err)
+	}
+	if tag := ev.Tags.GetFirst([]string{"expiration", ""}); tag != nil {
+		t.Errorf("unexpected expiration tag %v", tag)
+	}
+}
+
+func TestBuildReplyEvent_Expiration(t *testing.T) {
+	ev, err := buildReplyEvent(testPub, replyOpts{
+		Content:    "re",
+		ReplyToID:  testTargetID,
+		Expiration: 1700003600,
+	}, nil, 1700000000)
+	if err != nil {
+		t.Fatalf("err=%v", err)
+	}
+	if tag := ev.Tags.GetFirst([]string{"expiration", ""}); tag == nil || (*tag)[1] != "1700003600" {
+		t.Errorf("expiration tag = %v", tag)
+	}
+}
+
+func TestParseExpiration(t *testing.T) {
+	now := time.Unix(1700000000, 0)
+	tests := []struct {
+		in      string
+		want    nostr.Timestamp
+		wantErr bool
+	}{
+		{"", 0, false},
+		{"30m", 1700000000 + 1800, false},
+		{"12h", 1700000000 + 12*3600, false},
+		{"7d", 1700000000 + 7*86400, false},
+		{"1d12h", 1700000000 + 86400 + 12*3600, false},
+		{" 1h ", 1700000000 + 3600, false},
+		{"1800000000", 1800000000, false},
+		{"1600000000", 0, true}, // past timestamp
+		{"0s", 0, true},         // not in the future
+		{"-1h", 0, true},
+		{"xd", 0, true},
+		{"tomorrow", 0, true},
+	}
+	for _, tt := range tests {
+		got, err := parseExpiration(tt.in, now)
+		if (err != nil) != tt.wantErr {
+			t.Errorf("parseExpiration(%q) err=%v, wantErr=%v", tt.in, err, tt.wantErr)
+			continue
+		}
+		if got != tt.want {
+			t.Errorf("parseExpiration(%q) = %d, want %d", tt.in, got, tt.want)
+		}
 	}
 }

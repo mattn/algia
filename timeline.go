@@ -9,6 +9,7 @@ import (
 	"os"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -51,6 +52,11 @@ func doPost(cCtx *cli.Context) error {
 		return cli.ShowSubcommandHelp(cCtx)
 	}
 
+	expiration, err := parseExpiration(cCtx.String("expiration"), time.Now())
+	if err != nil {
+		return err
+	}
+
 	content, err := readContent(stdin, os.Stdin, cCtx.Args().Slice())
 	if err != nil {
 		return err
@@ -70,6 +76,7 @@ func doPost(cCtx *cli.Context) error {
 		images:         images,
 		servers:        cCtx.StringSlice("server"),
 		createdAt:      nostr.Timestamp(cCtx.Int64("created-at")),
+		expiration:     expiration,
 	})
 }
 
@@ -88,6 +95,7 @@ type postArg struct {
 	images         []string
 	servers        []string
 	createdAt      nostr.Timestamp
+	expiration     nostr.Timestamp // NIP-40; 0 means none
 }
 
 func callPost(arg *postArg) error {
@@ -188,19 +196,24 @@ func doReply(cCtx *cli.Context) error {
 	if !stdin && cCtx.Args().Len() == 0 {
 		return cli.ShowSubcommandHelp(cCtx)
 	}
+	expiration, err := parseExpiration(cCtx.String("expiration"), time.Now())
+	if err != nil {
+		return err
+	}
 	content, err := readContent(stdin, os.Stdin, cCtx.Args().Slice())
 	if err != nil {
 		return err
 	}
 	return callReply(&replyArg{
-		ctx:       cCtx.Context,
-		cfg:       cCtx.App.Metadata["config"].(*Config),
-		id:        cCtx.String("id"),
-		content:   content,
-		quote:     cCtx.Bool("quote"),
-		sensitive: cCtx.String("sensitive"),
-		geohash:   cCtx.String("geohash"),
-		emojis:    cCtx.StringSlice("emoji"),
+		ctx:        cCtx.Context,
+		cfg:        cCtx.App.Metadata["config"].(*Config),
+		id:         cCtx.String("id"),
+		content:    content,
+		quote:      cCtx.Bool("quote"),
+		sensitive:  cCtx.String("sensitive"),
+		geohash:    cCtx.String("geohash"),
+		emojis:     cCtx.StringSlice("emoji"),
+		expiration: expiration,
 	})
 }
 
@@ -768,14 +781,15 @@ func doPuru(cCtx *cli.Context) error {
 }
 
 type replyArg struct {
-	ctx       context.Context
-	cfg       *Config
-	id        string
-	content   string
-	quote     bool
-	sensitive string
-	geohash   string
-	emojis    []string
+	ctx        context.Context
+	cfg        *Config
+	id         string
+	content    string
+	quote      bool
+	sensitive  string
+	geohash    string
+	emojis     []string
+	expiration nostr.Timestamp // NIP-40; 0 means none
 }
 
 func callReply(arg *replyArg) error {
@@ -794,13 +808,14 @@ func callReply(arg *replyArg) error {
 	}
 
 	ev, err := buildReplyEvent(pub, replyOpts{
-		Content:   arg.content,
-		ReplyToID: id,
-		RelayHint: firstRelayHint(hints, firstWriteRelay(arg.cfg)),
-		Quote:     arg.quote,
-		Sensitive: arg.sensitive,
-		Geohash:   arg.geohash,
-		Emojis:    arg.emojis,
+		Content:    arg.content,
+		ReplyToID:  id,
+		RelayHint:  firstRelayHint(hints, firstWriteRelay(arg.cfg)),
+		Quote:      arg.quote,
+		Sensitive:  arg.sensitive,
+		Geohash:    arg.geohash,
+		Emojis:     arg.emojis,
+		Expiration: arg.expiration,
 	}, arg.cfg.Emojis, nostr.Now())
 	if err != nil {
 		return err
@@ -1215,4 +1230,50 @@ func callReportProfile(arg *reportProfileArg) error {
 	}
 
 	return nil
+}
+
+// parseExpiration parses a --expiration value into a NIP-40 expiration time.
+// It accepts a duration from now ("30m", "12h", "7d", "1d12h") or an absolute
+// unix timestamp. An empty value means no expiration and returns 0. The
+// result must lie in the future: relays drop already-expired events.
+func parseExpiration(s string, now time.Time) (nostr.Timestamp, error) {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return 0, nil
+	}
+	var at time.Time
+	if n, err := strconv.ParseInt(s, 10, 64); err == nil {
+		at = time.Unix(n, 0)
+	} else {
+		d, err := parseDurationWithDays(s)
+		if err != nil {
+			return 0, fmt.Errorf("invalid expiration %q: use a duration like 30m, 12h, 7d or a unix timestamp", s)
+		}
+		at = now.Add(d)
+	}
+	if !at.After(now) {
+		return 0, fmt.Errorf("expiration %q is not in the future", s)
+	}
+	return nostr.Timestamp(at.Unix()), nil
+}
+
+// parseDurationWithDays is time.ParseDuration plus a leading "<n>d" for days.
+func parseDurationWithDays(s string) (time.Duration, error) {
+	var days time.Duration
+	if i := strings.IndexByte(s, 'd'); i > 0 {
+		n, err := strconv.ParseInt(s[:i], 10, 64)
+		if err != nil || n < 0 {
+			return 0, fmt.Errorf("invalid days in %q", s)
+		}
+		days = time.Duration(n) * 24 * time.Hour
+		s = s[i+1:]
+		if s == "" {
+			return days, nil
+		}
+	}
+	d, err := time.ParseDuration(s)
+	if err != nil {
+		return 0, err
+	}
+	return days + d, nil
 }
